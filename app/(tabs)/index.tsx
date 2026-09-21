@@ -1,31 +1,59 @@
-import { StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, FlatList, ActivityIndicator, StyleSheet, Text } from 'react-native';
+import { useRouter } from 'expo-router';
+import { obtenerLugares } from '../../src/servicios/lugares';
+import { TarjetaLugar } from '../../src/componentes/TarjetaLugar';
+import { Lugar } from '../../src/tipos';
 
-import EditScreenInfo from '@/components/EditScreenInfo';
-import { Text, View } from '@/components/Themed';
+export default function CatalogoScreen() {
+  const [lugares, setLugares] = useState<Lugar[]>([]);
+  const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
-export default function TabOneScreen() {
+  useEffect(() => {
+    const cargarDatos = async () => {
+      try {
+        const data = await obtenerLugares();
+        setLugares(data);
+      } finally {
+        setLoading(false);
+      }
+    };
+    cargarDatos();
+  }, []);
+
+  const irAlDetalle = (id: string) => {
+    router.push({ pathname: '/lugar/[id]', params: { id } });
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color="#0077B6" />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Tab One</Text>
-      <View style={styles.separator} lightColor="#eee" darkColor="rgba(255,255,255,0.1)" />
-      <EditScreenInfo path="app/(tabs)/index.tsx" />
+      <FlatList
+        data={lugares}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <TarjetaLugar lugar={item} onPress={irAlDetalle} />
+        )}
+        contentContainerStyle={styles.lista}
+        ListEmptyComponent={
+          <Text style={styles.vacio}>No hay lugares disponibles en este momento.</Text>
+        }
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  title: {
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  separator: {
-    marginVertical: 30,
-    height: 1,
-    width: '80%',
-  },
+  container: { flex: 1, backgroundColor: '#F8F9FA' },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  lista: { padding: 16 },
+  vacio: { textAlign: 'center', marginTop: 50, color: '#999' },
 });
