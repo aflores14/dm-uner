@@ -35,7 +35,13 @@
         }
       ],
       "expo-image",
-      "@react-native-vector-icons/ionicons"
+      "@react-native-vector-icons/ionicons",
+      [
+        "expo-location",
+        {
+          "locationForegroundPermission": "La aplicación necesita acceso a tu ubicación para mostrar tu posición actual en el mapa interactivo."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

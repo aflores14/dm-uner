@@ -1,22 +1,22 @@
-import React from 'react';
 import { Tabs } from 'expo-router';
-import { useColorScheme } from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
   return (
-    <Tabs screenOptions={{
-      tabBarActiveTintColor: '#0077B6',
-      headerStyle: { backgroundColor: colorScheme === 'dark' ? '#03045E' : '#FFFFFF' },
-      headerTitleStyle: { fontWeight: 'bold' },
-    }}>
+    <Tabs screenOptions={{ tabBarActiveTintColor: '#0077B6' }}>
       <Tabs.Screen
         name="index"
         options={{
           title: 'Guía',
           tabBarIcon: ({ color }) => <Ionicons name="map-outline" size={24} color={color} />,
+        }}
+      />
+      {/* Pestaña del Mapa Interactivo */}
+      <Tabs.Screen
+        name="mapa"
+        options={{
+          title: 'Mapa',
+          tabBarIcon: ({ color }) => <Ionicons name="location-outline" size={24} color={color} />,
         }}
       />
       <Tabs.Screen

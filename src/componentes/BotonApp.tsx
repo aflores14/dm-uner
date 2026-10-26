@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
+import { Pressable, Text, StyleSheet, ActivityIndicator, ViewStyle } from 'react-native';
 
 interface BotonAppProps {
   titulo: string;
@@ -46,11 +46,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     textTransform: 'uppercase',
   },
-  pressed: {
-    opacity: 0.8,
-    transform: [{ scale: 0.98 }],
-  },
-  disabled: {
-    backgroundColor: '#A9D6E5',
-  },
+  pressed: { opacity: 0.8, transform: [{ scale: 0.98 }] },
+  disabled: { backgroundColor: '#A9D6E5' },
 });

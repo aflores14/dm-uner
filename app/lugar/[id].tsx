@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
-import { useLocalSearchParams, Stack } from 'expo-router';
+import { useLocalSearchParams, Stack, router } from 'expo-router';
 import { Image } from 'expo-image';
 import { obtenerLugarPorId } from '../../src/servicios/lugares';
 import { Lugar } from '../../src/tipos';
@@ -13,42 +13,44 @@ export default function DetalleLugarScreen() {
 
   useEffect(() => {
     if (id) {
-      obtenerLugarPorId(id).then((res) => {
-        if (res) setLugar(res);
+      obtenerLugarPorId(id).then(res => {
+        setLugar(res || null);
         setLoading(false);
       });
     }
   }, [id]);
 
-  if (loading) return <ActivityIndicator style={styles.loader} />;
-  if (!lugar) return <Text>Lugar no encontrado</Text>;
+  if (loading) return <ActivityIndicator style={{ flex: 1 }} />;
+  if (!lugar) return <Text style={styles.errorText}>Lugar no encontrado</Text>;
+
+  // Función corregida para acceder al objeto coordenadas
+  const irAlMapa = () => {
+    if (lugar.coordenadas?.latitud && lugar.coordenadas?.longitud) {
+      router.push({
+        pathname: '/(tabs)/mapa',
+        params: {
+          lat: lugar.coordenadas.latitud.toString(),
+          lng: lugar.coordenadas.longitud.toString(),
+          titulo: lugar.nombre,
+        },
+      });
+    }
+  };
 
   return (
     <ScrollView style={styles.container}>
       <Stack.Screen options={{ title: lugar.nombre }} />
-      
-      <Image source={lugar.imagenes[0]} style={styles.hero} />
-      
+      <Image source={lugar.imagenes[0]} style={styles.hero} contentFit="cover" />
       <View style={styles.content}>
-        <Text style={styles.categoria}>{lugar.categoriaId.toUpperCase()}</Text>
         <Text style={styles.nombre}>{lugar.nombre}</Text>
-        <Text style={styles.direccion}>{lugar.direccion}</Text>
-        
         <Text style={styles.descripcion}>{lugar.descripcion}</Text>
         
-        <View style={styles.seccion}>
-          <Text style={styles.subtitulo}>Horarios</Text>
-          {/* Ejemplo de mapeo de horarios según el contrato del PRD */}
-          <Text style={styles.horarioInfo}>
-            Lunes a Viernes: 08:00 - 20:00
-          </Text>
+        <View style={styles.botonContainer}>
+          <BotonApp 
+            titulo="Cómo llegar" 
+            onPress={irAlMapa} 
+          />
         </View>
-
-        <BotonApp 
-          titulo="Como llegar" 
-          onPress={() => console.log('Abrir Mapas')} 
-          style={styles.boton}
-        />
       </View>
     </ScrollView>
   );
@@ -56,15 +58,10 @@ export default function DetalleLugarScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFF' },
-  loader: { flex: 1, justifyContent: 'center' },
   hero: { width: '100%', height: 250 },
   content: { padding: 20 },
-  categoria: { color: '#0077B6', fontWeight: 'bold', fontSize: 12 },
-  nombre: { fontSize: 24, fontWeight: 'bold', color: '#03045E', marginVertical: 4 },
-  direccion: { color: '#666', marginBottom: 16 },
-  descripcion: { fontSize: 16, lineHeight: 24, color: '#333' },
-  seccion: { marginTop: 20, padding: 15, backgroundColor: '#F1F8FF', borderRadius: 8 },
-  subtitulo: { fontWeight: 'bold', marginBottom: 5 },
-  horarioInfo: { color: '#444' },
-  boton: { marginTop: 24 }
+  nombre: { fontSize: 24, fontWeight: 'bold', color: '#1E293B' },
+  descripcion: { marginTop: 10, fontSize: 16, color: '#475569', lineHeight: 22 },
+  botonContainer: { marginTop: 25 },
+  errorText: { flex: 1, textAlign: 'center', marginTop: 50, fontSize: 16 }
 });

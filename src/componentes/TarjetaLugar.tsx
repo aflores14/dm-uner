@@ -42,56 +42,13 @@ export const TarjetaLugar = ({ lugar, onPress }: TarjetaLugarProps) => {
 };
 
 const styles = StyleSheet.create({
-  card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    marginBottom: 16,
-    overflow: 'hidden',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  cardPressed: {
-    transform: [{ scale: 0.99 }],
-    opacity: 0.9,
-  },
-  imagen: {
-    width: '100%',
-    height: 180,
-  },
-  info: {
-    padding: 12,
-  },
-  nombre: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#03045E',
-  },
-  descripcion: {
-    fontSize: 14,
-    color: '#666',
-    marginVertical: 6,
-  },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#CAF0F8',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  badgeTexto: {
-    fontSize: 12,
-    color: '#0077B6',
-    fontWeight: '600',
-    marginLeft: 4,
-  },
+  card: { backgroundColor: '#FFFFFF', borderRadius: 12, marginBottom: 16, elevation: 3 },
+  cardPressed: { opacity: 0.9 },
+  imagen: { width: '100%', height: 180 },
+  info: { padding: 12 },
+  nombre: { fontSize: 18, fontWeight: 'bold', color: '#03045E' },
+  descripcion: { fontSize: 14, color: '#666', marginVertical: 6 },
+  footer: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
+  badge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#CAF0F8', padding: 4, borderRadius: 6 },
+  badgeTexto: { fontSize: 12, color: '#0077B6', fontWeight: '600', marginLeft: 4 },
 });

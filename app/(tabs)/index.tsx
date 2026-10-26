@@ -11,41 +11,18 @@ export default function CatalogoScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    const cargarDatos = async () => {
-      try {
-        const data = await obtenerLugares();
-        setLugares(data);
-      } finally {
-        setLoading(false);
-      }
-    };
-    cargarDatos();
+    obtenerLugares().then((data) => { setLugares(data); setLoading(false); });
   }, []);
 
-  const irAlDetalle = (id: string) => {
-    router.push({ pathname: '/lugar/[id]', params: { id } });
-  };
-
-  if (loading) {
-    return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" color="#0077B6" />
-      </View>
-    );
-  }
+  if (loading) return <View style={styles.centered}><ActivityIndicator size="large" /></View>;
 
   return (
     <View style={styles.container}>
       <FlatList
         data={lugares}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <TarjetaLugar lugar={item} onPress={irAlDetalle} />
-        )}
+        renderItem={({ item }) => <TarjetaLugar lugar={item} onPress={(id) => router.push(`/lugar/${id}`)} />}
         contentContainerStyle={styles.lista}
-        ListEmptyComponent={
-          <Text style={styles.vacio}>No hay lugares disponibles en este momento.</Text>
-        }
       />
     </View>
   );
@@ -53,7 +30,6 @@ export default function CatalogoScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  lista: { padding: 16 },
-  vacio: { textAlign: 'center', marginTop: 50, color: '#999' },
+  centered: { flex: 1, justifyContent: 'center' },
+  lista: { padding: 16 }
 });
