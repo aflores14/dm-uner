@@ -1,19 +1,17 @@
-import { LUGARES_MOCK } from "../mocks/lugaresMock";
-import { Lugar } from "../tipos";
+import { Lugar } from '../tipos';
+import { clienteHttp } from './cliente';
+
+interface ApiResponse<T> {
+  datos: T;
+  meta: any;
+}
 
 export const obtenerLugares = async (): Promise<Lugar[]> => {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      resolve(LUGARES_MOCK);
-    }, 1000);
-  });
+  const { data } = await clienteHttp.get<ApiResponse<Lugar[]>>('/lugares');
+  return data.datos;
 };
 
-export const obtenerLugarPorId = async (id: string): Promise<Lugar | undefined> => {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      const lugar = LUGARES_MOCK.find(l => l.id === id);
-      resolve(lugar);
-    }, 500);
-  });
+export const obtenerLugarPorId = async (id: string): Promise<Lugar> => {
+  const { data } = await clienteHttp.get<ApiResponse<Lugar>>(`/lugares/${id}`);
+  return data.datos;
 };

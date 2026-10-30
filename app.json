@@ -41,7 +41,8 @@
         {
           "locationForegroundPermission": "La aplicación necesita acceso a tu ubicación para mostrar tu posición actual en el mapa interactivo."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true
