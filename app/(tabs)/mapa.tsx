@@ -1,11 +1,13 @@
+// app/(tabs)/mapa.tsx
 import React from 'react';
-import { StyleSheet, View, Text, Platform } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 
 // Cargamos el mapa nativo SOLO si el sistema operativo NO es web
 let ComponenteMapa: React.ComponentType<any> | null = null;
 
 if (Platform.OS !== 'web') {
-  ComponenteMapa = require('@/components/MapaInteractivo').default;
+  // Nota: Asegúrate que la ruta sea correcta hacia tu src/componentes
+  ComponenteMapa = require('../../src/componentes/MapaInteractivo').default;
 }
 
 export default function PantallaMapa() {
@@ -13,7 +15,7 @@ export default function PantallaMapa() {
     return (
       <View style={styles.webContainer}>
         <Text style={styles.webTexto}>
-          El mapa interactivo está disponible en dispositivos móviles (Android / iOS).
+          El mapa interactivo solo está disponible en dispositivos móviles.
         </Text>
       </View>
     );
@@ -28,7 +30,7 @@ export default function PantallaMapa() {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1, // REGLA FUNDAMENTAL: Debe ser flex: 1 para que el mapa ocupe la pantalla en Android
+    flex: 1,
   },
   webContainer: {
     flex: 1,
