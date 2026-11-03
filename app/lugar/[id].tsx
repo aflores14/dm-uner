@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { BotonApp } from '../../src/componentes/BotonApp';
+import { alternarLugarFavorito, esLugarFavorito } from '../../src/servicios/favoritos';
 import { obtenerLugarPorId } from '../../src/servicios/lugares';
 import { Coordenadas, Lugar } from '../../src/tipos';
 import {
@@ -32,12 +33,13 @@ export default function DetalleLugarScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    // 1. Cargar lugar
+    // 1. Cargar lugar y estado de favorito
     if (id) {
       obtenerLugarPorId(id).then((res) => {
         setLugar(res);
         setCargando(false);
       });
+      esLugarFavorito(id).then(setEsFavorito);
     }
 
     // 2. Obtener ubicación con tolerancia a permisos
@@ -100,6 +102,13 @@ export default function DetalleLugarScreen() {
     }
   };
 
+  const toggleFav = async () => {
+    if (lugar) {
+      const nuevo = await alternarLugarFavorito(lugar.id);
+      setEsFavorito(nuevo);
+    }
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
       <Stack.Screen
@@ -107,7 +116,7 @@ export default function DetalleLugarScreen() {
           title: lugar.nombre,
           headerRight: () => (
             <Pressable
-              onPress={() => setEsFavorito(!esFavorito)}
+              onPress={toggleFav}
               style={({ pressed }) => [{ opacity: pressed ? 0.6 : 1, padding: 8 }]}
               accessibilityLabel="Marcar favorito"
             >
