@@ -20,6 +20,7 @@ import {
   calcularDistanciaMetros,
   formatearDistancia,
 } from '../utilidades/geolocalizacion';
+import { BrujulaDestino } from './BrujulaDestino';
 
 // Centro histórico de Colón, Entre Ríos
 const REGION_COLON_DEFECTO: Region = {
@@ -53,6 +54,7 @@ export default function MapaInteractivo() {
     titulo: string;
     lugarId?: string;
   } | null>(null);
+  const [mostrarBrujula, setMostrarBrujula] = useState(false);
 
   // 1. Obtener ubicación con expo-location (tolerante a permisos denegados)
   useEffect(() => {
@@ -315,6 +317,35 @@ export default function MapaInteractivo() {
               <Text style={styles.btnAbrirMapsTexto}>Abrir en Google/Apple Maps</Text>
             </Pressable>
 
+            {/* Botón de Brújula con flecha (PDF Pág. 2 y 5) */}
+            <Pressable
+              style={styles.btnBrujula}
+              onPress={() => setMostrarBrujula(!mostrarBrujula)}
+            >
+              <Ionicons
+                name={mostrarBrujula ? 'compass' : 'compass-outline'}
+                size={18}
+                color="#0077B6"
+              />
+              <Text style={styles.btnBrujulaTexto}>
+                {mostrarBrujula
+                  ? 'Ocultar brújula orientadora'
+                  : 'Ver flecha orientadora (Brújula)'}
+              </Text>
+            </Pressable>
+
+            {mostrarBrujula && (
+              <BrujulaDestino
+                origen={ubicacionUsuario}
+                destino={{
+                  latitud: destinoActivo.latitud,
+                  longitud: destinoActivo.longitud,
+                }}
+                tituloDestino={destinoActivo.titulo}
+                distanciaMetros={distanciaAlDestino}
+              />
+            )}
+
             <Pressable
               style={styles.btnVerTodos}
               onPress={() => setDestinoActivo(null)}
@@ -558,6 +589,22 @@ const styles = StyleSheet.create({
   btnAbrirMapsTexto: {
     color: '#FFFFFF',
     fontSize: 15,
+    fontWeight: '700',
+  },
+  btnBrujula: {
+    backgroundColor: '#E0F2FE',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  btnBrujulaTexto: {
+    color: '#0077B6',
+    fontSize: 14,
     fontWeight: '700',
   },
   btnVerTodos: {

@@ -1,5 +1,5 @@
 // app/(tabs)/perfil.tsx
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -22,7 +22,6 @@ import { useRouter } from 'expo-router';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { BotonApp } from '../../src/componentes/BotonApp';
 import { useAuth } from '../../src/contexto/AuthContext';
-import { obtenerFavoritosIds } from '../../src/servicios/favoritos';
 import { obtenerLugares } from '../../src/servicios/lugares';
 import { Lugar } from '../../src/tipos';
 
@@ -41,6 +40,7 @@ export default function PerfilScreen() {
   const {
     usuario,
     estaAutenticado,
+    favoritosIds,
     iniciarSesion,
     iniciarConBiometria,
     cerrarSesion,
@@ -66,23 +66,16 @@ export default function PerfilScreen() {
     },
   });
 
-  // Cargar lugares favoritos si está autenticado
-  const cargarFavoritos = useCallback(async () => {
-    if (estaAutenticado) {
-      try {
-        const favIds = await obtenerFavoritosIds();
-        const todosLugares = await obtenerLugares();
-        const filtrados = todosLugares.filter((l) => favIds.includes(l.id));
-        setLugaresFavoritos(filtrados);
-      } catch (e) {
-        console.error('Error cargando favoritos:', e);
-      }
-    }
-  }, [estaAutenticado]);
-
+  // Sincronizar lista de lugares cada vez que cambien los IDs del contexto global
   useEffect(() => {
-    cargarFavoritos();
-  }, [cargarFavoritos]);
+    if (!estaAutenticado || favoritosIds.length === 0) {
+      setLugaresFavoritos([]);
+      return;
+    }
+    obtenerLugares().then((todos) => {
+      setLugaresFavoritos(todos.filter((l) => favoritosIds.includes(l.id)));
+    });
+  }, [favoritosIds, estaAutenticado]);
 
   const onSubmit = async (data: LoginForm) => {
     setLoading(true);

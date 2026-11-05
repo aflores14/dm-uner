@@ -1,8 +1,9 @@
 // src/contexto/AuthContext.tsx
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { clienteHttp, TOKEN_KEY, USUARIO_KEY } from '../servicios/cliente';
+import { alternarFavoritoDb, obtenerFavoritosDb } from '../servicios/database';
 import { Usuario } from '../tipos';
 
 const BIOMETRIA_KEY = 'biometria_habilitada_v1';
@@ -29,6 +30,11 @@ interface AuthContextType {
   cargando: boolean;
   soportaBiometria: boolean;
   biometriaHabilitada: boolean;
+  // ── Favoritos reactivos globales ──────────────────────────────────────────
+  favoritosIds: string[];
+  toggleFavorito: (lugarId: string) => Promise<boolean>;
+  recargarFavoritos: () => Promise<void>;
+  // ─────────────────────────────────────────────────────────────────────────
   iniciarSesion: (email: string, contrasena: string) => Promise<{ ok: boolean; error?: string }>;
   iniciarConBiometria: () => Promise<{ ok: boolean; error?: string }>;
   cerrarSesion: () => Promise<void>;
@@ -43,6 +49,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [cargando, setCargando] = useState(true);
   const [soportaBiometria, setSoportaBiometria] = useState(false);
   const [biometriaHabilitada, setBiometriaHabilitada] = useState(false);
+  const [favoritosIds, setFavoritosIds] = useState<string[]>([]);
+
+  // ── Recarga favoritos desde SQLite para el usuario actual ─────────────────
+  const recargarFavoritos = useCallback(async (uid?: string) => {
+    const id = uid ?? usuario?.id;
+    if (!id) {
+      setFavoritosIds([]);
+      return;
+    }
+    const ids = await obtenerFavoritosDb(id);
+    setFavoritosIds(ids);
+  }, [usuario?.id]);
+
+  // ── Alterna favorito y actualiza el estado global inmediatamente ──────────
+  const toggleFavorito = useCallback(async (lugarId: string): Promise<boolean> => {
+    if (!usuario) return false;
+    const ahora = await alternarFavoritoDb(usuario.id, lugarId);
+    setFavoritosIds((prev) =>
+      ahora ? [...prev, lugarId] : prev.filter((id) => id !== lugarId)
+    );
+    return ahora;
+  }, [usuario]);
 
   // 1. Cargar sesión guardada y chequear biometría del hardware al iniciar
   useEffect(() => {
@@ -62,8 +90,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const usuarioGuardado = await SecureStore.getItemAsync(USUARIO_KEY);
 
         if (tokenGuardado && usuarioGuardado) {
+          const usr: Usuario = JSON.parse(usuarioGuardado);
           setToken(tokenGuardado);
-          setUsuario(JSON.parse(usuarioGuardado));
+          setUsuario(usr);
+          // Cargar favoritos del usuario restaurado
+          const ids = await obtenerFavoritosDb(usr.id);
+          setFavoritosIds(ids);
         }
       } catch (e) {
         console.error('Error restaurando sesión:', e);
@@ -107,6 +139,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(nuevoToken);
       setUsuario(nuevoUsuario);
 
+      // Cargar favoritos del nuevo usuario inmediatamente
+      const ids = await obtenerFavoritosDb(nuevoUsuario.id);
+      setFavoritosIds(ids);
+
       return { ok: true };
     } catch (e: any) {
       return { ok: false, error: e?.message || 'Error al iniciar sesión' };
@@ -138,6 +174,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         setToken(tokenGuardado);
         setUsuario(usr);
+
+        // Cargar favoritos del usuario restaurado por biometría
+        const ids = await obtenerFavoritosDb(usr.id);
+        setFavoritosIds(ids);
+
         return { ok: true };
       } else {
         return { ok: false, error: 'Autenticación biométrica no completada' };
@@ -161,6 +202,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await SecureStore.deleteItemAsync(USUARIO_KEY);
       setToken(null);
       setUsuario(null);
+      setFavoritosIds([]); // Limpiar favoritos en memoria al cerrar sesión
     } catch (e) {
       console.error('Error cerrando sesión:', e);
     }
@@ -175,6 +217,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         cargando,
         soportaBiometria,
         biometriaHabilitada,
+        favoritosIds,
+        toggleFavorito,
+        recargarFavoritos,
         iniciarSesion,
         iniciarConBiometria,
         cerrarSesion,

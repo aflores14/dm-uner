@@ -25,6 +25,25 @@ export function calcularDistanciaMetros(coord1: Coordenadas, coord2: Coordenadas
 }
 
 /**
+ * Calcula el rumbo geográfico (azimuth / bearing) en grados (0° a 360°)
+ * desde las coordenadas de origen hacia las del destino.
+ */
+export function calcularRumboGrados(origen: Coordenadas, destino: Coordenadas): number {
+  const rad = (deg: number) => (deg * Math.PI) / 180;
+  const deg = (rad: number) => (rad * 180) / Math.PI;
+
+  const lat1 = rad(origen.latitud);
+  const lat2 = rad(destino.latitud);
+  const dLon = rad(destino.longitud - origen.longitud);
+
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+
+  const rumbo = deg(Math.atan2(y, x));
+  return (rumbo + 360) % 360;
+}
+
+/**
  * Formatea una distancia en metros a texto amigable ("850 m" o "4,2 km").
  */
 export function formatearDistancia(metros: number | null | undefined): string {

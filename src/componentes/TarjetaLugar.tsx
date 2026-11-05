@@ -9,10 +9,18 @@ import { formatearDistancia, verificarEstadoApertura } from '../utilidades/geolo
 interface TarjetaLugarProps {
   lugar: Lugar;
   distanciaMetros?: number;
+  esFavorito?: boolean;
+  onToggleFavorito?: (id: string) => void;
   onPress: (id: string) => void;
 }
 
-export const TarjetaLugar = ({ lugar, distanciaMetros, onPress }: TarjetaLugarProps) => {
+export const TarjetaLugar = ({
+  lugar,
+  distanciaMetros,
+  esFavorito,
+  onToggleFavorito,
+  onPress,
+}: TarjetaLugarProps) => {
   const apertura = verificarEstadoApertura(lugar.horarios);
   const imagenPortada = lugar.imagenes && lugar.imagenes.length > 0 ? lugar.imagenes[0] : null;
 
@@ -34,6 +42,21 @@ export const TarjetaLugar = ({ lugar, distanciaMetros, onPress }: TarjetaLugarPr
         <View style={[styles.imagen, styles.imagenPlaceholder]}>
           <Ionicons name="image-outline" size={40} color="#888" />
         </View>
+      )}
+
+      {/* Botón de favorito flotante sobre la tarjeta */}
+      {onToggleFavorito && (
+        <Pressable
+          style={styles.btnFavFlotanteTarjeta}
+          onPress={() => onToggleFavorito(lugar.id)}
+          accessibilityLabel="Marcar favorito"
+        >
+          <Ionicons
+            name={esFavorito ? 'star' : 'star-outline'}
+            size={22}
+            color={esFavorito ? '#FFB703' : '#FFFFFF'}
+          />
+        </Pressable>
       )}
 
       {/* Badge de distancia flotante sobre la foto si está disponible */}
@@ -127,6 +150,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  btnFavFlotanteTarjeta: {
+    position: 'absolute',
+    top: 12,
+    left: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
   },
   badgeDistancia: {
     position: 'absolute',

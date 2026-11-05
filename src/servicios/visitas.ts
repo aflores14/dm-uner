@@ -1,8 +1,6 @@
 // src/servicios/visitas.ts
-import * as SecureStore from 'expo-secure-store';
 import { Visita } from '../tipos';
-
-const VISITAS_STORAGE_KEY = 'turismo_visitas_locales_v1';
+import { guardarVisitaDb, obtenerVisitasDb } from './database';
 
 const VISITAS_MOCK_INICIAL: Visita[] = [
   {
@@ -27,37 +25,27 @@ const VISITAS_MOCK_INICIAL: Visita[] = [
   },
 ];
 
-export const obtenerVisitas = async (): Promise<Visita[]> => {
-  try {
-    const raw = await SecureStore.getItemAsync(VISITAS_STORAGE_KEY);
-    if (raw) {
-      return JSON.parse(raw);
+export const obtenerVisitas = async (usuarioId?: string): Promise<Visita[]> => {
+  let visitas = await obtenerVisitasDb(usuarioId);
+  if (visitas.length === 0) {
+    // Inicializar con visitas de prueba
+    for (const v of VISITAS_MOCK_INICIAL) {
+      await guardarVisitaDb(v);
     }
-  } catch (e) {
-    console.error('Error leyendo visitas locales:', e);
+    visitas = await obtenerVisitasDb(usuarioId);
   }
-  // Si no hay datos previos, inicializamos con los mocks
-  await SecureStore.setItemAsync(VISITAS_STORAGE_KEY, JSON.stringify(VISITAS_MOCK_INICIAL));
-  return VISITAS_MOCK_INICIAL;
+  return visitas;
 };
 
 export const registrarNuevaVisita = async (
   nueva: Omit<Visita, 'id' | 'sincronizada'>
 ): Promise<Visita> => {
-  const actuales = await obtenerVisitas();
   const visitaCreada: Visita = {
     ...nueva,
     id: `vis-${Date.now()}`,
-    sincronizada: false, // Se guarda primero localmente sin conexión
+    sincronizada: false, // Se guarda primero localmente en cola offline
   };
 
-  const listaActualizada = [visitaCreada, ...actuales];
-  try {
-    await SecureStore.setItemAsync(VISITAS_STORAGE_KEY, JSON.stringify(listaActualizada));
-  } catch (e) {
-    console.error('Error guardando visita:', e);
-  }
-
+  await guardarVisitaDb(visitaCreada);
   return visitaCreada;
 };
-

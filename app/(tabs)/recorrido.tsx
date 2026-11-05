@@ -1,5 +1,5 @@
 // app/(tabs)/recorrido.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -14,12 +14,20 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
+import * as Haptics from 'expo-haptics';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { BotonApp } from '../../src/componentes/BotonApp';
 import { useAuth } from '../../src/contexto/AuthContext';
 import { obtenerLugares } from '../../src/servicios/lugares';
 import { obtenerVisitas, registrarNuevaVisita } from '../../src/servicios/visitas';
-import { Lugar, OrigenVisita, Visita } from '../../src/tipos';
+import { Coordenadas, Lugar, OrigenVisita, Visita } from '../../src/tipos';
+import {
+  calcularDistanciaMetros,
+  formatearDistancia,
+} from '../../src/utilidades/geolocalizacion';
 
 export default function RecorridoScreen() {
   const { usuario } = useAuth();
@@ -28,22 +36,37 @@ export default function RecorridoScreen() {
   const [visitas, setVisitas] = useState<Visita[]>([]);
   const [lugares, setLugares] = useState<Lugar[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [ubicacionUsuario, setUbicacionUsuario] = useState<Coordenadas | null>(null);
 
-  // Modal para registrar nueva visita manual
+  // Estados del modal de registro
   const [modalVisible, setModalVisible] = useState(false);
-  const [lugarSeleccionado, setLugarSeleccionado] = useState<string>('');
-  const [nota, setNota] = useState('');
+  const [pasoRegistro, setPasoRegistro] = useState<'metodo' | 'escaner' | 'formulario'>('metodo');
   const [origen, setOrigen] = useState<OrigenVisita>('manual');
+  const [lugarSeleccionado, setLugarSeleccionado] = useState<Lugar | null>(null);
+  const [fotoUri, setFotoUri] = useState<string | null>(null);
+  const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
+
+  // Permisos de Cámara
+  const [permisoCamara, solicitarPermisoCamara] = useCameraPermissions();
+  const escaneandoRef = useRef(false);
+
+  // Visor de foto en pantalla completa
+  const [fotoAmpliada, setFotoAmpliada] = useState<{
+    uri: string;
+    titulo: string;
+    fecha?: string;
+    nota?: string | null;
+  } | null>(null);
 
   const cargarDatos = async () => {
     try {
-      const [v, l] = await Promise.all([obtenerVisitas(), obtenerLugares()]);
+      const [v, l] = await Promise.all([
+        obtenerVisitas(usuario?.id),
+        obtenerLugares(),
+      ]);
       setVisitas(v);
       setLugares(l);
-      if (l.length > 0 && !lugarSeleccionado) {
-        setLugarSeleccionado(l[0].id);
-      }
     } catch (e) {
       console.error('Error cargando recorrido:', e);
     } finally {
@@ -53,41 +76,215 @@ export default function RecorridoScreen() {
 
   useEffect(() => {
     cargarDatos();
-  }, []);
 
-  const handleCrearVisita = async () => {
+    // Obtener ubicación GPS con tolerancia a permisos
+    (async () => {
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          setUbicacionUsuario({
+            latitud: loc.coords.latitude,
+            longitud: loc.coords.longitude,
+          });
+        }
+      } catch (_e) {}
+    })();
+  }, [usuario?.id]);
+
+  const abrirModalRegistro = () => {
+    setPasoRegistro('metodo');
+    setLugarSeleccionado(null);
+    setFotoUri(null);
+    setNota('');
+    escaneandoRef.current = false;
+    setModalVisible(true);
+  };
+
+  // =========================================================================
+  // MÉTODO 1: ESCANEO DE CÓDIGO QR CON SEGURIDAD Y VALIDACIÓN
+  // =========================================================================
+  const iniciarEscaneoQR = async () => {
+    if (!permisoCamara?.granted) {
+      const { granted } = await solicitarPermisoCamara();
+      if (!granted) {
+        Alert.alert(
+          'Permiso necesario',
+          'La app necesita acceso a la cámara para escanear el código QR del cartel.'
+        );
+        return;
+      }
+    }
+    escaneandoRef.current = false;
+    setOrigen('qr');
+    setPasoRegistro('escaner');
+  };
+
+  const handleBarcodeScanned = (data: string) => {
+    if (escaneandoRef.current) return;
+    escaneandoRef.current = true;
+
+    // Validación estricta del formato QR de Colón: "COLON:lug-xxx"
+    if (typeof data === 'string' && data.startsWith('COLON:')) {
+      const lugarEncontrado = lugares.find(
+        (l) => l.codigoQr === data || data.includes(l.id)
+      );
+
+      if (lugarEncontrado) {
+        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        setLugarSeleccionado(lugarEncontrado);
+        setPasoRegistro('formulario');
+        return;
+      }
+    }
+
+    // Si el QR está roto, es de otra cosa o ajeno: NO romperse ni colgarse
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+    Alert.alert(
+      'Código QR no reconocido',
+      'Este código no pertenece al circuito turístico oficial de Colón o se encuentra dañado.',
+      [
+        {
+          text: 'Reintentar',
+          onPress: () => {
+            escaneandoRef.current = false;
+          },
+        },
+        {
+          text: 'Cargar a mano',
+          onPress: () => {
+            setOrigen('manual');
+            setPasoRegistro('formulario');
+          },
+        },
+      ]
+    );
+  };
+
+  // =========================================================================
+  // MÉTODO 2: REGISTRO POR CERCANÍA FÍSICA (GPS)
+  // =========================================================================
+  const iniciarRegistroPorGps = (lugar: Lugar) => {
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    setOrigen('gps');
+    setLugarSeleccionado(lugar);
+    setPasoRegistro('formulario');
+  };
+
+  // =========================================================================
+  // MÉTODO 3: CARGA MANUAL
+  // =========================================================================
+  const iniciarRegistroManual = (lugar?: Lugar) => {
+    setOrigen('manual');
+    if (lugar) setLugarSeleccionado(lugar);
+    setPasoRegistro('formulario');
+  };
+
+  // =========================================================================
+  // CAPTURA O SELECCIÓN DE FOTO (expo-camera & expo-image-picker)
+  // =========================================================================
+  const tomarFotoConCamara = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permiso necesario',
+          'Se necesita permiso de cámara para tomar una foto de tu visita.'
+        );
+        return;
+      }
+      // allowsEditing: false evita que Android abra el crop intent que mata el proceso de Expo Go
+      const res = await ImagePicker.launchCameraAsync({
+        quality: 0.5,
+        allowsEditing: false,
+      });
+      if (!res.canceled && res.assets && res.assets.length > 0 && res.assets[0]?.uri) {
+        setFotoUri(res.assets[0].uri);
+        Haptics.selectionAsync();
+      }
+    } catch (e) {
+      console.log('Error tomando foto:', e);
+      Alert.alert(
+        'Aviso',
+        'No se pudo acceder a la cámara nativa. Puedes seleccionar una foto de tu galería.'
+      );
+    }
+  };
+
+  const seleccionarFotoGaleria = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permiso necesario',
+          'Se necesita permiso para acceder a tu galería de fotos.'
+        );
+        return;
+      }
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        quality: 0.6,
+        allowsEditing: false,
+      });
+      if (!res.canceled && res.assets && res.assets.length > 0 && res.assets[0]?.uri) {
+        setFotoUri(res.assets[0].uri);
+        Haptics.selectionAsync();
+      }
+    } catch (e) {
+      console.log('Error eligiendo foto de galería:', e);
+    }
+  };
+
+  // =========================================================================
+  // GUARDAR VISITA
+  // =========================================================================
+  const handleGuardarVisita = async () => {
     if (!lugarSeleccionado) {
-      Alert.alert('Atención', 'Selecciona un lugar visitado.');
+      Alert.alert('Atención', 'Por favor selecciona un lugar para registrar la visita.');
       return;
     }
 
     setGuardando(true);
-    const lugarObj = lugares.find((l) => l.id === lugarSeleccionado);
-    const foto = lugarObj?.imagenes[0] || null;
+    try {
+      const nueva = await registrarNuevaVisita({
+        usuarioId: usuario?.id || 'usr-201',
+        lugarId: lugarSeleccionado.id,
+        fechaHora: new Date().toISOString(),
+        origen: origen,
+        fotoUri: fotoUri || lugarSeleccionado.imagenes[0] || null,
+        nota: nota.trim() || null,
+      });
 
-    const creada = await registrarNuevaVisita({
-      usuarioId: usuario?.id || 'usr-anonimo',
-      lugarId: lugarSeleccionado,
-      fechaHora: new Date().toISOString(),
-      origen: origen,
-      fotoUri: foto,
-      nota: nota.trim() || null,
-    });
+      // Feedback háptico obligatorio al registrar visita (PDF Pág. 5)
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
-    setVisitas([creada, ...visitas]);
-    setNota('');
-    setGuardando(false);
-    setModalVisible(false);
+      setVisitas([nueva, ...visitas]);
+      setModalVisible(false);
 
-    Alert.alert(
-      '¡Visita Registrada!',
-      'Tu visita ha sido guardada en la memoria local del dispositivo (cola offline).'
-    );
+      Alert.alert(
+        '¡Visita Registrada!',
+        `Registraste tu visita en "${lugarSeleccionado.nombre}". La visita quedó guardada en tu dispositivo (cola offline).`
+      );
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo guardar la visita.');
+    } finally {
+      setGuardando(false);
+    }
   };
 
-  const getLugarInfo = (lugarId: string) => {
-    return lugares.find((l) => l.id === lugarId);
-  };
+  // Ordenar lugares cercanos si hay GPS
+  const lugaresCercanosGps = ubicacionUsuario
+    ? [...lugares]
+        .map((l) => ({
+          lugar: l,
+          dist: calcularDistanciaMetros(ubicacionUsuario, l.coordenadas),
+        }))
+        .sort((a, b) => a.dist - b.dist)
+    : [];
+
+  const getLugarInfo = (lugarId: string) => lugares.find((l) => l.id === lugarId);
 
   const formatearFecha = (iso: string) => {
     try {
@@ -104,8 +301,8 @@ export default function RecorridoScreen() {
     }
   };
 
-  const renderBadgeOrigen = (origenVisita: OrigenVisita) => {
-    switch (origenVisita) {
+  const renderBadgeOrigen = (orig: OrigenVisita) => {
+    switch (orig) {
       case 'qr':
         return (
           <View style={[styles.badgeOrigen, { backgroundColor: '#EDE9FE' }]}>
@@ -150,13 +347,10 @@ export default function RecorridoScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.headerTitulo}>Mi Recorrido</Text>
               <Text style={styles.headerSub}>
-                Bitácora de lugares que visitaste en Colón
+                {usuario ? `Bitácora de ${usuario.nombre}` : 'Bitácora de visitas a Colón'}
               </Text>
             </View>
-            <Pressable
-              style={styles.btnRegistrar}
-              onPress={() => setModalVisible(true)}
-            >
+            <Pressable style={styles.btnRegistrar} onPress={abrirModalRegistro}>
               <Ionicons name="add" size={20} color="#FFFFFF" />
               <Text style={styles.btnRegistrarTexto}>Registrar</Text>
             </Pressable>
@@ -167,7 +361,6 @@ export default function RecorridoScreen() {
 
           return (
             <View style={styles.timelineItem}>
-              {/* Línea e indicador visual de la bitácora */}
               <View style={styles.timelineEje}>
                 <View style={styles.timelinePunto}>
                   <Ionicons name="checkmark" size={12} color="#FFFFFF" />
@@ -175,15 +368,30 @@ export default function RecorridoScreen() {
                 <View style={styles.timelineLinea} />
               </View>
 
-              {/* Tarjeta de Visita */}
               <View style={styles.card}>
                 {item.fotoUri && (
-                  <Image
-                    source={item.fotoUri}
-                    style={styles.cardFoto}
-                    contentFit="cover"
-                    transition={200}
-                  />
+                  <Pressable
+                    style={styles.cardFotoContenedor}
+                    onPress={() =>
+                      setFotoAmpliada({
+                        uri: item.fotoUri!,
+                        titulo: lugar ? lugar.nombre : 'Visita en Colón',
+                        fecha: formatearFecha(item.fechaHora),
+                        nota: item.nota,
+                      })
+                    }
+                  >
+                    <Image
+                      source={item.fotoUri}
+                      style={styles.cardFoto}
+                      contentFit="cover"
+                      transition={200}
+                    />
+                    <View style={styles.badgeAmpliarFoto}>
+                      <Ionicons name="expand" size={13} color="#FFFFFF" />
+                      <Text style={styles.badgeAmpliarTexto}>Tocar para ampliar</Text>
+                    </View>
+                  </Pressable>
                 )}
 
                 <View style={styles.cardCuerpo}>
@@ -203,7 +411,7 @@ export default function RecorridoScreen() {
                     </View>
                   )}
 
-                  {/* Estado de sincronización offline (PDF Pág. 12) */}
+                  {/* Estado de sincronización offline (Pág. 12) */}
                   <View style={styles.cardFooter}>
                     <View
                       style={[
@@ -242,16 +450,18 @@ export default function RecorridoScreen() {
         }}
         ListEmptyComponent={
           <View style={styles.vacioContenedor}>
-            <Ionicons name="map-outline" size={54} color="#CBD5E1" />
+            <Ionicons name="camera-outline" size={54} color="#CBD5E1" />
             <Text style={styles.vacioTitulo}>Sin visitas registradas</Text>
             <Text style={styles.vacioSub}>
-              Comienza a registrar los lugares que visitas mediante QR, GPS o de forma manual.
+              Escanea el QR de los carteles de Colón, confirma por cercanía GPS o carga tu visita a mano.
             </Text>
           </View>
         }
       />
 
-      {/* MODAL PARA REGISTRAR VISITA */}
+      {/* ===================================================================== */}
+      {/* MODAL DE REGISTRO DE VISITA */}
+      {/* ===================================================================== */}
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -260,71 +470,236 @@ export default function RecorridoScreen() {
       >
         <View style={styles.modalFondo}>
           <View style={styles.modalVentana}>
+            {/* Header del modal */}
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitulo}>Registrar Visita</Text>
-              <Pressable onPress={() => setModalVisible(false)}>
+              <Text style={styles.modalTitulo}>
+                {pasoRegistro === 'metodo'
+                  ? '¿Cómo deseas registrar la visita?'
+                  : pasoRegistro === 'escaner'
+                  ? 'Escanear QR del Cartel'
+                  : 'Detalles de la Visita'}
+              </Text>
+              <Pressable
+                onPress={() => {
+                  if (pasoRegistro !== 'metodo') {
+                    setPasoRegistro('metodo');
+                  } else {
+                    setModalVisible(false);
+                  }
+                }}
+              >
                 <Ionicons name="close" size={24} color="#64748B" />
               </Pressable>
             </View>
 
-            <ScrollView contentContainerStyle={styles.modalScroll}>
-              <Text style={styles.modalLabel}>Selecciona el lugar visitado:</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 16 }}>
-                {lugares.map((lug) => {
-                  const sel = lugarSeleccionado === lug.id;
-                  return (
+            {/* PASO 1: SELECCIÓN DEL MÉTODO */}
+            {pasoRegistro === 'metodo' && (
+              <ScrollView contentContainerStyle={styles.metodosContenedor}>
+                {/* Opción 1: Escanear QR */}
+                <Pressable style={styles.metodoCard} onPress={iniciarEscaneoQR}>
+                  <View style={[styles.metodoIcono, { backgroundColor: '#EDE9FE' }]}>
+                    <Ionicons name="qr-code" size={26} color="#7C3AED" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.metodoTitulo}>Escanear código QR del cartel</Text>
+                    <Text style={styles.metodoDesc}>
+                      Apunta con la cámara al cartel turístico en el lugar.
+                    </Text>
+                  </View>
+                </Pressable>
+
+                {/* Opción 2: Físicamente cerca (GPS) */}
+                {lugaresCercanosGps.length > 0 && lugaresCercanosGps[0].dist < 500 && (
+                  <View style={styles.cercaniaBox}>
+                    <Text style={styles.cercaniaHeader}>Lugares detectados cerca de ti:</Text>
+                    {lugaresCercanosGps.slice(0, 2).map(({ lugar, dist }) => (
+                      <Pressable
+                        key={lugar.id}
+                        style={styles.lugarCercaFila}
+                        onPress={() => iniciarRegistroPorGps(lugar)}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.lugarCercaNombre}>{lugar.nombre}</Text>
+                          <Text style={styles.lugarCercaDist}>A {formatearDistancia(dist)}</Text>
+                        </View>
+                        <View style={styles.btnEstoyAqui}>
+                          <Text style={styles.btnEstoyAquiTexto}>Estoy acá</Text>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+
+                {/* Opción 3: Carga Manual */}
+                <Pressable
+                  style={styles.metodoCard}
+                  onPress={() => iniciarRegistroManual()}
+                >
+                  <View style={[styles.metodoIcono, { backgroundColor: '#FEF3C7' }]}>
+                    <Ionicons name="create" size={26} color="#D97706" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.metodoTitulo}>Cargar visita a mano</Text>
+                    <Text style={styles.metodoDesc}>
+                      Elige el lugar del catálogo y escribe tus notas.
+                    </Text>
+                  </View>
+                </Pressable>
+              </ScrollView>
+            )}
+
+            {/* PASO 2: ESCÁNER QR */}
+            {pasoRegistro === 'escaner' && (
+              <View style={styles.escanerContenedor}>
+                <CameraView
+                  style={styles.camaraView}
+                  barcodeScannerSettings={{
+                    barcodeTypes: ['qr'],
+                  }}
+                  onBarcodeScanned={(result) => handleBarcodeScanned(result.data)}
+                >
+                  <View style={styles.marcoQr}>
+                    <View style={styles.esquinaQr} />
+                  </View>
+                </CameraView>
+                <Text style={styles.escanerAyuda}>
+                  Apunta al código QR del cartel oficial de Colón (COLON:lug-xxx).
+                </Text>
+              </View>
+            )}
+
+            {/* PASO 3: FORMULARIO DE DETALLES (LUGAR, FOTO, NOTA) */}
+            {pasoRegistro === 'formulario' && (
+              <ScrollView contentContainerStyle={styles.formularioScroll}>
+                {/* Lugar seleccionado o selector si fue manual */}
+                <Text style={styles.modalLabel}>Lugar visitado:</Text>
+                {lugarSeleccionado ? (
+                  <View style={styles.lugarSeleccionadoCard}>
+                    <Ionicons name="location" size={20} color="#0077B6" />
+                    <Text style={styles.lugarSeleccionadoTexto}>
+                      {lugarSeleccionado.nombre}
+                    </Text>
                     <Pressable
-                      key={lug.id}
-                      style={[styles.lugarChip, sel && styles.lugarChipActivo]}
-                      onPress={() => setLugarSeleccionado(lug.id)}
+                      onPress={() => setLugarSeleccionado(null)}
+                      style={{ marginLeft: 'auto' }}
                     >
-                      <Text style={[styles.lugarChipTexto, sel && styles.lugarChipTextoActivo]}>
-                        {lug.nombre}
+                      <Text style={{ color: '#0077B6', fontSize: 13, fontWeight: 'bold' }}>
+                        Cambiar
                       </Text>
                     </Pressable>
-                  );
-                })}
-              </ScrollView>
+                  </View>
+                ) : (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+                    {lugares.map((lug) => (
+                      <Pressable
+                        key={lug.id}
+                        style={styles.lugarChip}
+                        onPress={() => setLugarSeleccionado(lug)}
+                      >
+                        <Text style={styles.lugarChipTexto}>{lug.nombre}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                )}
 
-              <Text style={styles.modalLabel}>Método de registro:</Text>
-              <View style={styles.origenSelector}>
-                {(['manual', 'qr', 'gps'] as OrigenVisita[]).map((m) => (
-                  <Pressable
-                    key={m}
-                    style={[styles.origenBtn, origen === m && styles.origenBtnActivo]}
-                    onPress={() => setOrigen(m)}
-                  >
-                    <Text
-                      style={[
-                        styles.origenBtnTexto,
-                        origen === m && styles.origenBtnTextoActivo,
-                      ]}
+                {/* Foto de la visita (sacar o elegir) */}
+                <Text style={styles.modalLabel}>Foto de tu visita:</Text>
+                {fotoUri ? (
+                  <View style={styles.fotoPreviewContenedor}>
+                    <Pressable
+                      style={{ flex: 1 }}
+                      onPress={() =>
+                        setFotoAmpliada({
+                          uri: fotoUri,
+                          titulo: lugarSeleccionado?.nombre || 'Foto de visita',
+                          nota: nota || undefined,
+                        })
+                      }
                     >
-                      {m.toUpperCase()}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
+                      <Image source={fotoUri} style={styles.fotoPreview} contentFit="cover" />
+                      <View style={styles.badgeAmpliarFoto}>
+                        <Ionicons name="expand" size={13} color="#FFFFFF" />
+                        <Text style={styles.badgeAmpliarTexto}>Tocar para ampliar</Text>
+                      </View>
+                    </Pressable>
+                    <Pressable
+                      style={styles.btnQuitarFoto}
+                      onPress={() => setFotoUri(null)}
+                    >
+                      <Ionicons name="trash" size={18} color="#FFFFFF" />
+                    </Pressable>
+                  </View>
+                ) : (
+                  <View style={styles.botonesFotoFila}>
+                    <Pressable style={styles.btnFoto} onPress={tomarFotoConCamara}>
+                      <Ionicons name="camera" size={20} color="#0077B6" />
+                      <Text style={styles.btnFotoTexto}>Sacar foto</Text>
+                    </Pressable>
+                    <Pressable style={styles.btnFoto} onPress={seleccionarFotoGaleria}>
+                      <Ionicons name="images" size={20} color="#0077B6" />
+                      <Text style={styles.btnFotoTexto}>De galería</Text>
+                    </Pressable>
+                  </View>
+                )}
 
-              <Text style={styles.modalLabel}>Nota de tu experiencia (opcional):</Text>
-              <TextInput
-                style={styles.modalInputNota}
-                placeholder="Escribe una breve anécdota o recuerdo..."
-                placeholderTextColor="#94A3B8"
-                multiline
-                numberOfLines={3}
-                value={nota}
-                onChangeText={setNota}
-              />
+                {/* Nota corta */}
+                <Text style={styles.modalLabel}>Nota de recuerdo (opcional):</Text>
+                <TextInput
+                  style={styles.inputNota}
+                  placeholder="Escribe cómo fue tu experiencia..."
+                  placeholderTextColor="#94A3B8"
+                  multiline
+                  numberOfLines={3}
+                  value={nota}
+                  onChangeText={setNota}
+                />
 
-              <BotonApp
-                titulo="Guardar en Mi Recorrido"
-                onPress={handleCrearVisita}
-                isLoading={guardando}
-                style={{ marginTop: 12 }}
-              />
-            </ScrollView>
+                <BotonApp
+                  titulo="Guardar Visita en Mi Recorrido"
+                  onPress={handleGuardarVisita}
+                  isLoading={guardando}
+                  style={{ marginTop: 14 }}
+                />
+              </ScrollView>
+            )}
           </View>
+        </View>
+      </Modal>
+
+      {/* MODAL PARA VER FOTO EN DETALLE / PANTALLA COMPLETA */}
+      <Modal
+        visible={Boolean(fotoAmpliada)}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setFotoAmpliada(null)}
+      >
+        <View style={styles.visorFotoFondo}>
+          <Pressable
+            style={styles.visorFotoCerrar}
+            onPress={() => setFotoAmpliada(null)}
+            accessibilityLabel="Cerrar foto ampliada"
+          >
+            <Ionicons name="close-circle" size={38} color="#FFFFFF" />
+          </Pressable>
+
+          {fotoAmpliada && (
+            <View style={styles.visorFotoContenido}>
+              <Image
+                source={fotoAmpliada.uri}
+                style={styles.visorFotoImagen}
+                contentFit="contain"
+              />
+              <View style={styles.visorFotoPie}>
+                <Text style={styles.visorFotoTitulo}>{fotoAmpliada.titulo}</Text>
+                {fotoAmpliada.fecha && (
+                  <Text style={styles.visorFotoFecha}>{fotoAmpliada.fecha}</Text>
+                )}
+                {fotoAmpliada.nota && (
+                  <Text style={styles.visorFotoNota}>"{fotoAmpliada.nota}"</Text>
+                )}
+              </View>
+            </View>
+          )}
         </View>
       </Modal>
     </View>
@@ -349,11 +724,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
     backgroundColor: '#0077B6',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     borderRadius: 10,
   },
-  btnRegistrarTexto: { color: '#FFFFFF', fontSize: 13, fontWeight: 'bold' },
+  btnRegistrarTexto: { color: '#FFFFFF', fontSize: 14, fontWeight: 'bold' },
   timelineItem: { flexDirection: 'row', marginBottom: 16 },
   timelineEje: { width: 30, alignItems: 'center' },
   timelinePunto: {
@@ -365,12 +740,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     zIndex: 1,
   },
-  timelineLinea: {
-    width: 2,
-    flex: 1,
-    backgroundColor: '#CBD5E1',
-    marginTop: -2,
-  },
+  timelineLinea: { width: 2, flex: 1, backgroundColor: '#CBD5E1', marginTop: -2 },
   card: {
     flex: 1,
     backgroundColor: '#FFFFFF',
@@ -383,7 +753,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     marginBottom: 6,
   },
-  cardFoto: { width: '100%', height: 140 },
+  cardFoto: { width: '100%', height: 160 },
   cardCuerpo: { padding: 14 },
   cardFilaSuperior: {
     flexDirection: 'row',
@@ -447,7 +817,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
-    maxHeight: '80%',
+    maxHeight: '85%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -455,9 +825,82 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
   },
-  modalTitulo: { fontSize: 20, fontWeight: 'bold', color: '#03045E' },
-  modalScroll: { paddingBottom: 20 },
-  modalLabel: { fontSize: 14, fontWeight: '600', color: '#334155', marginBottom: 8 },
+  modalTitulo: { fontSize: 18, fontWeight: 'bold', color: '#03045E', flex: 1 },
+  metodosContenedor: { paddingBottom: 20, gap: 12 },
+  metodoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 12,
+    gap: 12,
+  },
+  metodoIcono: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  metodoTitulo: { fontSize: 15, fontWeight: 'bold', color: '#0F172A' },
+  metodoDesc: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  cercaniaBox: {
+    backgroundColor: '#F0F9FF',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+    borderRadius: 12,
+    padding: 12,
+  },
+  cercaniaHeader: { fontSize: 13, fontWeight: '700', color: '#0284C7', marginBottom: 8 },
+  lugarCercaFila: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#BAE6FD',
+  },
+  lugarCercaNombre: { fontSize: 14, fontWeight: 'bold', color: '#03045E' },
+  lugarCercaDist: { fontSize: 12, color: '#0284C7' },
+  btnEstoyAqui: {
+    backgroundColor: '#0077B6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  btnEstoyAquiTexto: { color: '#FFFFFF', fontSize: 12, fontWeight: 'bold' },
+  escanerContenedor: { height: 320, alignItems: 'center' },
+  camaraView: {
+    width: '100%',
+    height: 260,
+    borderRadius: 14,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  marcoQr: {
+    width: 180,
+    height: 180,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    borderRadius: 12,
+    backgroundColor: 'transparent',
+  },
+  esquinaQr: {},
+  escanerAyuda: { fontSize: 12, color: '#64748B', textAlign: 'center', marginTop: 10 },
+  formularioScroll: { paddingBottom: 20 },
+  modalLabel: { fontSize: 14, fontWeight: '700', color: '#334155', marginBottom: 6, marginTop: 10 },
+  lugarSeleccionadoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E0F2FE',
+    padding: 12,
+    borderRadius: 10,
+    gap: 8,
+  },
+  lugarSeleccionadoTexto: { fontSize: 15, fontWeight: 'bold', color: '#03045E' },
   lugarChip: {
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -465,25 +908,32 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginRight: 8,
   },
-  lugarChipActivo: { backgroundColor: '#0077B6' },
   lugarChipTexto: { fontSize: 13, color: '#334155', fontWeight: '600' },
-  lugarChipTextoActivo: { color: '#FFFFFF' },
-  origenSelector: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 16,
-  },
-  origenBtn: {
+  botonesFotoFila: { flexDirection: 'row', gap: 10 },
+  btnFoto: {
     flex: 1,
-    paddingVertical: 8,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 8,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-  origenBtnActivo: { backgroundColor: '#0077B6' },
-  origenBtnTexto: { fontSize: 12, fontWeight: '700', color: '#64748B' },
-  origenBtnTextoActivo: { color: '#FFFFFF' },
-  modalInputNota: {
+  btnFotoTexto: { fontSize: 13, fontWeight: '700', color: '#0077B6' },
+  fotoPreviewContenedor: { position: 'relative', borderRadius: 10, overflow: 'hidden' },
+  fotoPreview: { width: '100%', height: 160 },
+  btnQuitarFoto: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: 'rgba(220, 38, 38, 0.85)',
+    padding: 6,
+    borderRadius: 16,
+  },
+  inputNota: {
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#CBD5E1',
@@ -492,7 +942,78 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#0F172A',
     textAlignVertical: 'top',
-    minHeight: 80,
+    minHeight: 70,
+  },
+  cardFotoContenedor: {
+    position: 'relative',
+    width: '100%',
+    height: 170,
+  },
+  badgeAmpliarFoto: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  badgeAmpliarTexto: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  visorFotoFondo: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  visorFotoCerrar: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+    padding: 6,
+  },
+  visorFotoContenido: {
+    width: '100%',
+    height: '80%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  visorFotoImagen: {
+    width: '100%',
+    height: '75%',
+    borderRadius: 12,
+  },
+  visorFotoPie: {
+    marginTop: 16,
+    width: '100%',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  visorFotoTitulo: {
+    color: '#FFFFFF',
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  visorFotoFecha: {
+    color: '#94A3B8',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  visorFotoNota: {
+    color: '#E2E8F0',
+    fontSize: 14,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginTop: 8,
+    lineHeight: 20,
   },
 });
-

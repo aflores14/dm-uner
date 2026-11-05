@@ -17,6 +17,8 @@ import { TarjetaLugar } from '../../src/componentes/TarjetaLugar';
 import { obtenerCategorias, obtenerLugares } from '../../src/servicios/lugares';
 import { Categoria, Coordenadas, Lugar } from '../../src/tipos';
 import { calcularDistanciaMetros } from '../../src/utilidades/geolocalizacion';
+import { notificarProximidadLugar } from '../../src/servicios/notificaciones';
+import { useAuth } from '../../src/contexto/AuthContext';
 
 export default function CatalogoScreen() {
   const [lugares, setLugares] = useState<Lugar[]>([]);
@@ -27,7 +29,13 @@ export default function CatalogoScreen() {
   const [ordenarPorDistancia, setOrdenarPorDistancia] = useState(false);
   const [ubicacionUsuario, setUbicacionUsuario] = useState<Coordenadas | null>(null);
 
+  // Usar favoritosIds y toggleFavorito del contexto global (ya están sincronizados)
+  const { favoritosIds, toggleFavorito } = useAuth();
   const router = useRouter();
+
+  const handleToggleFav = async (lugarId: string) => {
+    await toggleFavorito(lugarId);
+  };
 
   // 1. Obtener ubicación del usuario respetando permisos (degradación elegante si no los otorga)
   useEffect(() => {
@@ -61,6 +69,19 @@ export default function CatalogoScreen() {
       .then((data) => setLugares(data))
       .finally(() => setCargando(false));
   }, [catActiva, busqueda]);
+
+  // Aviso de proximidad controlado (PDF Pág. 4: máximo 1 por lugar por día)
+  useEffect(() => {
+    if (ubicacionUsuario && lugares.length > 0) {
+      for (const lugar of lugares) {
+        const d = calcularDistanciaMetros(ubicacionUsuario, lugar.coordenadas);
+        if (d <= 250) {
+          notificarProximidadLugar(lugar, d);
+          break;
+        }
+      }
+    }
+  }, [ubicacionUsuario, lugares]);
 
   // 4. Calcular distancias y ordenar si el usuario lo solicita
   const lugaresConDistancia = useMemo(() => {
@@ -170,6 +191,8 @@ export default function CatalogoScreen() {
             <TarjetaLugar
               lugar={item.lugar}
               distanciaMetros={item.dist}
+              esFavorito={favoritosIds.includes(item.lugar.id)}
+              onToggleFavorito={handleToggleFav}
               onPress={(id) => router.push(`/lugar/${id}`)}
             />
           )}

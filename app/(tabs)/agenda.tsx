@@ -12,6 +12,7 @@ import {
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import Ionicons from '@react-native-vector-icons/ionicons';
+import { programarRecordatorioEvento } from '../../src/servicios/notificaciones';
 import { obtenerEventos } from '../../src/servicios/eventos';
 import { obtenerLugarPorId } from '../../src/servicios/lugares';
 import { Evento, Lugar } from '../../src/tipos';
@@ -46,13 +47,14 @@ export default function AgendaScreen() {
     })();
   }, []);
 
-  const toggleGuardarEvento = (evento: Evento) => {
+  const toggleGuardarEvento = async (evento: Evento) => {
     const yaGuardado = eventosGuardados.includes(evento.id);
     if (yaGuardado) {
       setEventosGuardados(eventosGuardados.filter((id) => id !== evento.id));
       Alert.alert('Recordatorio quitado', `Ya no recibirás aviso para "${evento.titulo}".`);
     } else {
       setEventosGuardados([...eventosGuardados, evento.id]);
+      await programarRecordatorioEvento(evento);
       Alert.alert(
         '¡Evento agendado!',
         `Te avisaremos con anticipación antes de que comience "${evento.titulo}".`

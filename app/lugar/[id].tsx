@@ -14,7 +14,8 @@ import {
 } from 'react-native';
 import Ionicons from '@react-native-vector-icons/ionicons';
 import { BotonApp } from '../../src/componentes/BotonApp';
-import { alternarLugarFavorito, esLugarFavorito } from '../../src/servicios/favoritos';
+import { ReproductorAudioguia } from '../../src/componentes/ReproductorAudioguia';
+import { useAuth } from '../../src/contexto/AuthContext';
 import { obtenerLugarPorId } from '../../src/servicios/lugares';
 import { Coordenadas, Lugar } from '../../src/tipos';
 import {
@@ -28,21 +29,25 @@ export default function DetalleLugarScreen() {
   const [lugar, setLugar] = useState<Lugar | null>(null);
   const [cargando, setCargando] = useState(true);
   const [ubicacionUsuario, setUbicacionUsuario] = useState<Coordenadas | null>(null);
-  const [esFavorito, setEsFavorito] = useState(false);
+
+  // Usar el estado global de favoritos del contexto
+  const { usuario, favoritosIds, toggleFavorito } = useAuth();
+
+  // esFavorito se deriva directamente del estado global → siempre en sincronía
+  const esFavorito = lugar ? favoritosIds.includes(lugar.id) : false;
 
   const router = useRouter();
 
   useEffect(() => {
-    // 1. Cargar lugar y estado de favorito
+    // Cargar lugar
     if (id) {
       obtenerLugarPorId(id).then((res) => {
         setLugar(res);
         setCargando(false);
       });
-      esLugarFavorito(id).then(setEsFavorito);
     }
 
-    // 2. Obtener ubicación con tolerancia a permisos
+    // Obtener ubicación con tolerancia a permisos
     (async () => {
       try {
         const { status } = await Location.getForegroundPermissionsAsync();
@@ -104,8 +109,7 @@ export default function DetalleLugarScreen() {
 
   const toggleFav = async () => {
     if (lugar) {
-      const nuevo = await alternarLugarFavorito(lugar.id);
-      setEsFavorito(nuevo);
+      await toggleFavorito(lugar.id);
     }
   };
 
@@ -113,7 +117,7 @@ export default function DetalleLugarScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
       <Stack.Screen
         options={{
-          title: lugar.nombre,
+          headerTitle: 'Detalle',
           headerRight: () => (
             <Pressable
               onPress={toggleFav}
@@ -122,7 +126,7 @@ export default function DetalleLugarScreen() {
             >
               <Ionicons
                 name={esFavorito ? 'star' : 'star-outline'}
-                size={24}
+                size={26}
                 color={esFavorito ? '#FFB703' : '#03045E'}
               />
             </Pressable>
@@ -130,23 +134,47 @@ export default function DetalleLugarScreen() {
         }}
       />
 
-      {/* Imagen Hero */}
-      {lugar.imagenes && lugar.imagenes.length > 0 ? (
-        <Image
-          source={lugar.imagenes[0]}
-          style={styles.hero}
-          contentFit="cover"
-          transition={300}
-        />
-      ) : (
-        <View style={[styles.hero, styles.heroPlaceholder]}>
-          <Ionicons name="image-outline" size={60} color="#94A3B8" />
-        </View>
-      )}
+      {/* Imagen Hero con botón de favorito flotante */}
+      <View style={styles.heroContenedor}>
+        {lugar.imagenes && lugar.imagenes.length > 0 ? (
+          <Image
+            source={lugar.imagenes[0]}
+            style={styles.hero}
+            contentFit="cover"
+            transition={300}
+          />
+        ) : (
+          <View style={[styles.hero, styles.heroPlaceholder]}>
+            <Ionicons name="image-outline" size={60} color="#94A3B8" />
+          </View>
+        )}
+
+        {/* Botón flotante de estrella siempre visible sobre la foto */}
+        <Pressable
+          style={styles.btnFavoritoFlotante}
+          onPress={toggleFav}
+          accessibilityLabel="Marcar o desmarcar favorito"
+        >
+          <Ionicons
+            name={esFavorito ? 'star' : 'star-outline'}
+            size={26}
+            color={esFavorito ? '#FFB703' : '#64748B'}
+          />
+        </Pressable>
+      </View>
 
       <View style={styles.content}>
-        {/* Nombre */}
-        <Text style={styles.nombre}>{lugar.nombre}</Text>
+        {/* Fila de Nombre y Estrella */}
+        <View style={styles.tituloFila}>
+          <Text style={styles.nombre}>{lugar.nombre}</Text>
+          <Pressable onPress={toggleFav} style={styles.btnFavoritoJuntoTitulo}>
+            <Ionicons
+              name={esFavorito ? 'star' : 'star-outline'}
+              size={28}
+              color={esFavorito ? '#FFB703' : '#CBD5E1'}
+            />
+          </Pressable>
+        </View>
 
         {/* Dirección */}
         <View style={styles.filaInfo}>
@@ -229,22 +257,11 @@ export default function DetalleLugarScreen() {
 
         {/* Audioguía (si existe) */}
         {lugar.audioguia && (
-          <View style={styles.audioguiaCard}>
-            <Ionicons name="headset" size={24} color="#0077B6" />
-            <View style={{ flex: 1, marginLeft: 12 }}>
-              <Text style={styles.audioguiaTitulo}>Audioguía disponible</Text>
-              <Text style={styles.audioguiaSubtitulo}>
-                Duración: {Math.floor(lugar.audioguia.duracionSegundos / 60)}:
-                {(lugar.audioguia.duracionSegundos % 60).toString().padStart(2, '0')} min
-              </Text>
-            </View>
-            <Pressable
-              style={styles.audioguiaBtn}
-              onPress={() => alert('Reproduciendo audioguía histórica...')}
-            >
-              <Ionicons name="play" size={18} color="#FFFFFF" />
-            </Pressable>
-          </View>
+          <ReproductorAudioguia
+            lugarId={lugar.id}
+            audioguia={lugar.audioguia}
+            tituloLugar={lugar.nombre}
+          />
         )}
 
         {/* Botones de acción principales */}
@@ -265,13 +282,39 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: 40 },
   centrado: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
   hero: { width: '100%', height: 260 },
+  heroContenedor: { position: 'relative', width: '100%', height: 260 },
+  btnFavoritoFlotante: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+  },
   heroPlaceholder: {
     backgroundColor: '#E2E8F0',
     alignItems: 'center',
     justifyContent: 'center',
   },
   content: { padding: 20 },
-  nombre: { fontSize: 24, fontWeight: 'bold', color: '#03045E' },
+  tituloFila: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  nombre: { fontSize: 24, fontWeight: 'bold', color: '#03045E', flex: 1 },
+  btnFavoritoJuntoTitulo: {
+    padding: 4,
+  },
   filaInfo: {
     flexDirection: 'row',
     alignItems: 'center',
