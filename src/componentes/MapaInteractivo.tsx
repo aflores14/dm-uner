@@ -1,5 +1,5 @@
 // src/componentes/MapaInteractivo.tsx
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -19,8 +19,10 @@ import {
   abrirEnMapasExternos,
   calcularDistanciaMetros,
   formatearDistancia,
+  obtenerUbicacionRobusta,
+  suscribirUbicacion,
 } from '../utilidades/geolocalizacion';
-import { BrujulaDestino } from './BrujulaDestino';
+import { BrujulaDestinoCompacta } from './BrujulaDestino';
 
 // Centro histórico de Colón, Entre Ríos
 const REGION_COLON_DEFECTO: Region = {
@@ -54,27 +56,29 @@ export default function MapaInteractivo() {
     titulo: string;
     lugarId?: string;
   } | null>(null);
-  const [mostrarBrujula, setMostrarBrujula] = useState(false);
 
-  // 1. Obtener ubicación con expo-location (tolerante a permisos denegados)
+  // 1. Obtener ubicación con método tolerante y suscripción continua
   useEffect(() => {
+    let sub: Location.LocationSubscription | null = null;
+    let activo = true;
+
     (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          const coordUsuario: Coordenadas = {
-            latitud: loc.coords.latitude,
-            longitud: loc.coords.longitude,
-          };
-          setUbicacionUsuario(coordUsuario);
-        }
-      } catch (err) {
-        console.log('Error o permiso no otorgado en ubicación:', err);
+      const inicial = await obtenerUbicacionRobusta();
+      if (activo && inicial) {
+        setUbicacionUsuario(inicial);
       }
+
+      sub = await suscribirUbicacion((coord) => {
+        if (activo) {
+          setUbicacionUsuario(coord);
+        }
+      });
     })();
+
+    return () => {
+      activo = false;
+      if (sub) sub.remove();
+    };
   }, []);
 
   // 2. Cargar lugares y categorías desde el servicio
@@ -88,7 +92,7 @@ export default function MapaInteractivo() {
       .finally(() => setCargando(false));
   }, []);
 
-  // 3. Activar modo destino si vienen parámetros
+  // 3. Activar modo destino si vienen parámetros desde la pantalla de detalle
   useEffect(() => {
     if (params.lat && params.lng) {
       const latNum = parseFloat(params.lat);
@@ -145,6 +149,37 @@ export default function MapaInteractivo() {
     });
   }, [destinoActivo, ubicacionUsuario]);
 
+  // ── Centrar en MI ubicación (botón siempre visible) ──────────────────────
+  const centrarEnMiUbicacion = useCallback(async () => {
+    // Si ya tenemos ubicación cacheada, usarla directamente
+    if (ubicacionUsuario) {
+      mapRef.current?.animateToRegion(
+        {
+          latitude: ubicacionUsuario.latitud,
+          longitude: ubicacionUsuario.longitud,
+          latitudeDelta: 0.015,
+          longitudeDelta: 0.015,
+        },
+        600
+      );
+      return;
+    }
+    // Si no, intentar obtenerla con el método robusto (última conocida o actual)
+    const coords = await obtenerUbicacionRobusta();
+    if (coords) {
+      setUbicacionUsuario(coords);
+      mapRef.current?.animateToRegion(
+        {
+          latitude: coords.latitud,
+          longitude: coords.longitud,
+          latitudeDelta: 0.015,
+          longitudeDelta: 0.015,
+        },
+        600
+      );
+    }
+  }, [ubicacionUsuario]);
+
   const centrarEnLugar = (lugar: Lugar) => {
     mapRef.current?.animateToRegion(
       {
@@ -168,7 +203,9 @@ export default function MapaInteractivo() {
 
   return (
     <View style={styles.container}>
-      {/* MAPA PRINCIPAL */}
+      {/* ═══════════════════════════════════════════════════════════════════
+          MAPA PRINCIPAL
+      ═══════════════════════════════════════════════════════════════════ */}
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
@@ -191,9 +228,10 @@ export default function MapaInteractivo() {
             : REGION_COLON_DEFECTO
         }
         showsUserLocation={true}
-        showsMyLocationButton={true}
+        // Desactivamos el botón nativo (poco confiable en Android) → usamos el propio
+        showsMyLocationButton={false}
       >
-        {/* CASO A: MODO DESTINO -> Solo se muestra el marcador del destino + usuario */}
+        {/* CASO A: MODO DESTINO → solo marcador del destino + punto de usuario */}
         {destinoActivo ? (
           <Marker
             coordinate={{
@@ -201,7 +239,6 @@ export default function MapaInteractivo() {
               longitude: destinoActivo.longitud,
             }}
             title={destinoActivo.titulo}
-            pinColor="#0077B6"
           >
             <View style={styles.pinDestinoContenedor}>
               <View style={styles.pinDestinoCirculo}>
@@ -221,7 +258,7 @@ export default function MapaInteractivo() {
             </Callout>
           </Marker>
         ) : (
-          /* CASO B: MODO GENERAL -> Se muestran todos los lugares marcados */
+          /* CASO B: MODO GENERAL → todos los lugares marcados */
           lugaresFiltrados.map((lugar) => (
             <Marker
               key={lugar.id}
@@ -243,10 +280,16 @@ export default function MapaInteractivo() {
         )}
       </MapView>
 
-      {/* OVERLAY SUPERIOR: FILTRO DE CATEGORÍAS (Solo en modo general) */}
+      {/* ═══════════════════════════════════════════════════════════════════
+          OVERLAY SUPERIOR: FILTRO DE CATEGORÍAS (Solo en modo general)
+      ═══════════════════════════════════════════════════════════════════ */}
       {!destinoActivo && (
         <View style={styles.filtrosOverlay}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtrosScroll}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filtrosScroll}
+          >
             <Pressable
               onPress={() => setCatSeleccionada(undefined)}
               style={[styles.chipFiltro, !catSeleccionada && styles.chipFiltroActivo]}
@@ -276,87 +319,96 @@ export default function MapaInteractivo() {
         </View>
       )}
 
-      {/* OVERLAY INFERIOR - CASO 1: TARJETA DE NAVEGACIÓN A DESTINO */}
+      {/* ═══════════════════════════════════════════════════════════════════
+          BOTÓN "MI UBICACIÓN" — siempre visible, esquina inferior derecha
+      ═══════════════════════════════════════════════════════════════════ */}
+      <Pressable
+        style={({ pressed }) => [
+          styles.btnMiUbicacion,
+          // en modo destino lo subimos para no tapar la tarjeta inferior
+          destinoActivo ? styles.btnMiUbicacionConDestino : styles.btnMiUbicacionNormal,
+          pressed && { opacity: 0.75, transform: [{ scale: 0.94 }] },
+        ]}
+        onPress={centrarEnMiUbicacion}
+        accessibilityLabel="Centrar en mi ubicación"
+      >
+        <Ionicons name="locate" size={22} color="#0077B6" />
+      </Pressable>
+
+      {/* ═══════════════════════════════════════════════════════════════════
+          MODO DESTINO: FLECHA COMPACTA FLOTANTE + TARJETA INFERIOR
+      ═══════════════════════════════════════════════════════════════════ */}
       {destinoActivo && (
-        <View style={styles.tarjetaDestino}>
-          <View style={styles.tarjetaDestinoHeader}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.tarjetaDestinoSub}>CÓMO LLEGAR A</Text>
-              <Text style={styles.tarjetaDestinoTitulo} numberOfLines={1}>
-                {destinoActivo.titulo}
-              </Text>
-              {distanciaAlDestino !== null && (
-                <View style={styles.distanciaFila}>
-                  <Ionicons name="navigate" size={14} color="#0077B6" />
-                  <Text style={styles.distanciaTexto}>
-                    Distancia: {formatearDistancia(distanciaAlDestino)}
-                  </Text>
-                </View>
-              )}
+        <>
+          {/* Flecha orientadora: overlay a la derecha del centro del mapa.
+              Aparece SIEMPRE en modo destino — no hay que presionar nada.
+              Si el usuario presionó "mi ubicación", la flecha le indica
+              hacia dónde caminar para llegar al lugar elegido.           */}
+          <View style={styles.brujulaOverlay} pointerEvents="none">
+            <BrujulaDestinoCompacta
+              origen={ubicacionUsuario}
+              destino={{
+                latitud: destinoActivo.latitud,
+                longitud: destinoActivo.longitud,
+              }}
+              tituloDestino={destinoActivo.titulo}
+              distanciaMetros={distanciaAlDestino}
+            />
+          </View>
+
+          {/* Tarjeta inferior: nombre, distancia y acciones */}
+          <View style={styles.tarjetaDestino}>
+            <View style={styles.tarjetaDestinoHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.tarjetaDestinoSub}>CÓMO LLEGAR A</Text>
+                <Text style={styles.tarjetaDestinoTitulo} numberOfLines={1}>
+                  {destinoActivo.titulo}
+                </Text>
+                {distanciaAlDestino !== null && (
+                  <View style={styles.distanciaFila}>
+                    <Ionicons name="navigate" size={14} color="#0077B6" />
+                    <Text style={styles.distanciaTexto}>
+                      {formatearDistancia(distanciaAlDestino)} en línea recta
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <Pressable
+                onPress={() => setDestinoActivo(null)}
+                style={styles.cerrarDestinoBtn}
+                accessibilityLabel="Ver todos los lugares"
+              >
+                <Ionicons name="close" size={22} color="#64748B" />
+              </Pressable>
             </View>
-            <Pressable
-              onPress={() => setDestinoActivo(null)}
-              style={styles.cerrarDestinoBtn}
-              accessibilityLabel="Ver todos los lugares"
-            >
-              <Ionicons name="close" size={22} color="#64748B" />
-            </Pressable>
+
+            <View style={styles.tarjetaDestinoBotones}>
+              {/* Abrir en Google / Apple Maps */}
+              <Pressable
+                style={styles.btnAbrirMaps}
+                onPress={() =>
+                  abrirEnMapasExternos(
+                    { latitud: destinoActivo.latitud, longitud: destinoActivo.longitud },
+                    destinoActivo.titulo
+                  )
+                }
+              >
+                <Ionicons name="navigate-circle" size={20} color="#FFFFFF" />
+                <Text style={styles.btnAbrirMapsTexto}>Abrir en Google / Apple Maps</Text>
+              </Pressable>
+
+              {/* Ver todos los lugares */}
+              <Pressable style={styles.btnVerTodos} onPress={() => setDestinoActivo(null)}>
+                <Text style={styles.btnVerTodosTexto}>Ver todos los lugares</Text>
+              </Pressable>
+            </View>
           </View>
-
-          <View style={styles.tarjetaDestinoBotones}>
-            <Pressable
-              style={styles.btnAbrirMaps}
-              onPress={() =>
-                abrirEnMapasExternos(
-                  { latitud: destinoActivo.latitud, longitud: destinoActivo.longitud },
-                  destinoActivo.titulo
-                )
-              }
-            >
-              <Ionicons name="navigate-circle" size={20} color="#FFFFFF" />
-              <Text style={styles.btnAbrirMapsTexto}>Abrir en Google/Apple Maps</Text>
-            </Pressable>
-
-            {/* Botón de Brújula con flecha (PDF Pág. 2 y 5) */}
-            <Pressable
-              style={styles.btnBrujula}
-              onPress={() => setMostrarBrujula(!mostrarBrujula)}
-            >
-              <Ionicons
-                name={mostrarBrujula ? 'compass' : 'compass-outline'}
-                size={18}
-                color="#0077B6"
-              />
-              <Text style={styles.btnBrujulaTexto}>
-                {mostrarBrujula
-                  ? 'Ocultar brújula orientadora'
-                  : 'Ver flecha orientadora (Brújula)'}
-              </Text>
-            </Pressable>
-
-            {mostrarBrujula && (
-              <BrujulaDestino
-                origen={ubicacionUsuario}
-                destino={{
-                  latitud: destinoActivo.latitud,
-                  longitud: destinoActivo.longitud,
-                }}
-                tituloDestino={destinoActivo.titulo}
-                distanciaMetros={distanciaAlDestino}
-              />
-            )}
-
-            <Pressable
-              style={styles.btnVerTodos}
-              onPress={() => setDestinoActivo(null)}
-            >
-              <Text style={styles.btnVerTodosTexto}>Ver todos los lugares</Text>
-            </Pressable>
-          </View>
-        </View>
+        </>
       )}
 
-      {/* OVERLAY INFERIOR - CASO 2: LISTA 'CERCA TUYO' (Wireframe Pág. 3) */}
+      {/* ═══════════════════════════════════════════════════════════════════
+          MODO GENERAL: LISTA "CERCA TUYO"
+      ═══════════════════════════════════════════════════════════════════ */}
       {!destinoActivo && (
         <View style={styles.cercaTuyoContenedor}>
           <View style={styles.cercaTuyoHeader}>
@@ -384,10 +436,7 @@ export default function MapaInteractivo() {
                   : null;
 
               return (
-                <Pressable
-                  style={styles.tarjetaCercana}
-                  onPress={() => centrarEnLugar(item)}
-                >
+                <Pressable style={styles.tarjetaCercana} onPress={() => centrarEnLugar(item)}>
                   <View style={styles.tarjetaCercanaContenido}>
                     <Text style={styles.tarjetaCercanaNombre} numberOfLines={1}>
                       {item.nombre}
@@ -405,7 +454,6 @@ export default function MapaInteractivo() {
                           </Text>
                         </View>
                       )}
-
                       <Pressable
                         onPress={() => router.push(`/lugar/${item.id}`)}
                         style={styles.btnDetalleCercano}
@@ -441,6 +489,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#64748B',
   },
+
+  // ── Chips de filtro ─────────────────────────────────────────────────────
   filtrosOverlay: {
     position: 'absolute',
     top: 14,
@@ -473,6 +523,43 @@ const styles = StyleSheet.create({
   chipFiltroTextoActivo: {
     color: '#FFFFFF',
   },
+
+  // ── Botón MI UBICACIÓN (siempre visible) ────────────────────────────────
+  btnMiUbicacion: {
+    position: 'absolute',
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.2,
+    shadowRadius: 5,
+    borderWidth: 1,
+    borderColor: '#E0F2FE',
+  },
+  // En modo normal: encima de la lista "Cerca tuyo" (aproximadamente 220 pt desde abajo)
+  btnMiUbicacionNormal: {
+    bottom: 230,
+  },
+  // En modo destino: encima de la tarjeta de destino (aproximadamente 240 pt)
+  btnMiUbicacionConDestino: {
+    bottom: 250,
+  },
+
+  // ── Flecha orientadora flotante (modo destino) ──────────────────────────
+  brujulaOverlay: {
+    position: 'absolute',
+    left: 16,
+    // Centrado verticalmente en el mapa (evitar que tape los chips o la tarjeta)
+    top: '35%',
+  },
+
+  // ── Marcador de destino ─────────────────────────────────────────────────
   pinDestinoContenedor: {
     alignItems: 'center',
   },
@@ -500,6 +587,8 @@ const styles = StyleSheet.create({
     borderTopColor: '#0077B6',
     marginTop: -1,
   },
+
+  // ── Callouts ────────────────────────────────────────────────────────────
   callout: {
     width: 200,
     padding: 6,
@@ -526,6 +615,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginTop: 6,
   },
+
+  // ── Tarjeta inferior (modo destino) ─────────────────────────────────────
   tarjetaDestino: {
     position: 'absolute',
     bottom: 24,
@@ -591,22 +682,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
-  btnBrujula: {
-    backgroundColor: '#E0F2FE',
-    borderWidth: 1,
-    borderColor: '#BAE6FD',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  btnBrujulaTexto: {
-    color: '#0077B6',
-    fontSize: 14,
-    fontWeight: '700',
-  },
   btnVerTodos: {
     alignItems: 'center',
     paddingVertical: 8,
@@ -616,6 +691,8 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+
+  // ── Lista "Cerca tuyo" (modo general) ───────────────────────────────────
   cercaTuyoContenedor: {
     position: 'absolute',
     bottom: 16,

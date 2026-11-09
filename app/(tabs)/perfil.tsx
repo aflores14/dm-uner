@@ -23,6 +23,7 @@ import Ionicons from '@react-native-vector-icons/ionicons';
 import { BotonApp } from '../../src/componentes/BotonApp';
 import { useAuth } from '../../src/contexto/AuthContext';
 import { obtenerLugares } from '../../src/servicios/lugares';
+import { reiniciarHistorialNotificacionesProximidad } from '../../src/servicios/notificaciones';
 import { Lugar } from '../../src/tipos';
 
 // Esquema de validación estricto según la cátedra
@@ -207,6 +208,32 @@ export default function PerfilScreen() {
                 ))}
               </View>
             </View>
+
+            {/* Botón para reiniciar historial de notificaciones diarias (pruebas y evaluación) */}
+            <Pressable
+              style={{
+                marginTop: 14,
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                backgroundColor: '#F1F5F9',
+                borderRadius: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+              }}
+              onPress={async () => {
+                await reiniciarHistorialNotificacionesProximidad();
+                Alert.alert(
+                  'Historial reiniciado',
+                  'Se limpiaron los avisos enviados hoy. Ahora puedes volver a recibir notificaciones de proximidad inmediatamente.'
+                );
+              }}
+            >
+              <Ionicons name="refresh-outline" size={16} color="#0077B6" />
+              <Text style={{ fontSize: 13, color: '#0077B6', fontWeight: '600' }}>
+                Reiniciar avisos de proximidad de hoy
+              </Text>
+            </Pressable>
           </View>
 
           {/* Mis Lugares Favoritos */}

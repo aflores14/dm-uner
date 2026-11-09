@@ -1,14 +1,14 @@
 // src/servicios/notificaciones.ts
 import * as Notifications from 'expo-notifications';
 import * as SecureStore from 'expo-secure-store';
+import * as Haptics from 'expo-haptics';
 import { Evento, Lugar } from '../tipos';
 
-const AVISOS_ENVIADOS_KEY = 'notificaciones_enviadas_hoy_v1';
+const AVISOS_ENVIADOS_KEY = 'notificaciones_enviadas_hoy_v4';
 
 // Configurar cómo se presentan las notificaciones cuando la app está abierta
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
     shouldShowBanner: true,
@@ -17,8 +17,40 @@ Notifications.setNotificationHandler({
   }),
 });
 
+/**
+ * Registra categorías y acciones explícitas para evitar que en Android
+ * el Intent extra de acción retorne nulo en NotificationForwarderActivity.
+ */
+export const configurarCategoriasNotificaciones = async (): Promise<void> => {
+  try {
+    await Notifications.setNotificationCategoryAsync('proximidad', [
+      {
+        identifier: 'ver_lugar',
+        buttonTitle: 'Ver lugar',
+        options: {
+          opensAppToForeground: true,
+        },
+      },
+    ]);
+
+    await Notifications.setNotificationCategoryAsync('evento', [
+      {
+        identifier: 'ver_evento',
+        buttonTitle: 'Ver agenda',
+        options: {
+          opensAppToForeground: true,
+        },
+      },
+    ]);
+  } catch (e) {
+    console.log('Aviso al configurar categorías de notificación:', e);
+  }
+};
+
 export const solicitarPermisosNotificaciones = async (): Promise<boolean> => {
   try {
+    await configurarCategoriasNotificaciones();
+
     const { status: statusExistente } = await Notifications.getPermissionsAsync();
     let finalStatus = statusExistente;
     if (statusExistente !== 'granted') {
@@ -33,9 +65,9 @@ export const solicitarPermisosNotificaciones = async (): Promise<boolean> => {
 };
 
 /**
- * REGLA ESTRICTA DE LA CÁTEDRA (Pág. 4):
- * "No la conviertan en una máquina de notificaciones. Si alguien camina por la peatonal
- * no puede recibir doce avisos en cinco cuadras. Un aviso por lugar y por día es más que suficiente."
+ * REGLA DE LA CÁTEDRA (Pág. 4):
+ * "Un aviso por lugar y por día es más que suficiente."
+ * En desarrollo (__DEV__) se permite volver a notificar tras 1 minuto para facilitar pruebas.
  */
 export const notificarProximidadLugar = async (
   lugar: Lugar,
@@ -43,28 +75,53 @@ export const notificarProximidadLugar = async (
 ): Promise<boolean> => {
   try {
     const hoy = new Date().toISOString().split('T')[0]; // "YYYY-MM-DD"
+    const ahoraMs = Date.now();
     const registroRaw = await SecureStore.getItemAsync(AVISOS_ENVIADOS_KEY);
-    const registro: Record<string, string> = registroRaw ? JSON.parse(registroRaw) : {};
+    const registro: Record<string, { fecha: string; timestamp: number }> = registroRaw
+      ? JSON.parse(registroRaw)
+      : {};
 
-    // Si ya se le envió notificación sobre este lugar hoy, NO saturar
-    if (registro[lugar.id] === hoy) {
+    const ultimoAviso = registro[lugar.id];
+    const mismoDia = ultimoAviso && ultimoAviso.fecha === hoy;
+    const tiempoDesdeUltimoAviso = ultimoAviso ? ahoraMs - ultimoAviso.timestamp : Infinity;
+
+    // En desarrollo permitimos avisar nuevamente tras 60 segundos para poder probar en el lugar
+    const bloqueadoPorFrecuencia = mismoDia && (!__DEV__ || tiempoDesdeUltimoAviso < 60000);
+
+    if (bloqueadoPorFrecuencia) {
+      console.log(`[Proximidad] Aviso para "${lugar.nombre}" omitido para no saturar.`);
       return false;
     }
 
     const tienePermiso = await solicitarPermisosNotificaciones();
-    if (!tienePermiso) return false;
+    if (!tienePermiso) {
+      console.log('[Proximidad] Permiso de notificaciones no concedido.');
+      return false;
+    }
 
+    // Vibración háptica requerida por la cátedra (expo-haptics)
+    try {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (_h) {}
+
+    // Disparo inmediato mediante expo-notifications con enlace y categoría
     await Notifications.scheduleNotificationAsync({
       content: {
         title: `¡Estás cerca de ${lugar.nombre}!`,
         body: `A solo ${Math.round(distanciaMetros)}m. Toca para ver horarios y detalles.`,
-        data: { lugarId: lugar.id },
+        data: {
+          url: `/lugar/${lugar.id}`,
+          lugarId: lugar.id,
+        },
+        categoryIdentifier: 'proximidad',
       },
-      trigger: null, // Disparo inmediato
+      trigger: null,
     });
 
-    // Guardar registro para evitar duplicados en el mismo día
-    registro[lugar.id] = hoy;
+    console.log(`[Proximidad] Notificación emitida con éxito para "${lugar.nombre}" (${Math.round(distanciaMetros)}m).`);
+
+    // Guardar registro
+    registro[lugar.id] = { fecha: hoy, timestamp: ahoraMs };
     await SecureStore.setItemAsync(AVISOS_ENVIADOS_KEY, JSON.stringify(registro));
     return true;
   } catch (e) {
@@ -92,7 +149,11 @@ export const programarRecordatorioEvento = async (evento: Evento): Promise<boole
         content: {
           title: `Recordatorio: ${evento.titulo}`,
           body: `El evento comienza en 1 hora en ${evento.direccionLibre || 'Colón'}.`,
-          data: { eventoId: evento.id },
+          data: {
+            url: '/(tabs)/agenda',
+            eventoId: evento.id,
+          },
+          categoryIdentifier: 'evento',
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DATE,
@@ -105,7 +166,11 @@ export const programarRecordatorioEvento = async (evento: Evento): Promise<boole
         content: {
           title: `¡Evento hoy: ${evento.titulo}!`,
           body: `Comienza hoy a las ${inicio.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs.`,
-          data: { eventoId: evento.id },
+          data: {
+            url: '/(tabs)/agenda',
+            eventoId: evento.id,
+          },
+          categoryIdentifier: 'evento',
         },
         trigger: null,
       });
@@ -116,4 +181,14 @@ export const programarRecordatorioEvento = async (evento: Evento): Promise<boole
     console.error('Error agendando recordatorio de evento:', e);
     return false;
   }
+};
+
+/**
+ * Utilidad para reiniciar el registro de avisos y permitir pruebas inmediatas
+ */
+export const reiniciarHistorialNotificacionesProximidad = async (): Promise<void> => {
+  try {
+    await SecureStore.deleteItemAsync(AVISOS_ENVIADOS_KEY);
+    console.log('[Proximidad] Historial de notificaciones reiniciado.');
+  } catch (_e) {}
 };

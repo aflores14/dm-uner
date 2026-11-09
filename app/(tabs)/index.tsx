@@ -2,6 +2,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   ScrollView,
@@ -16,7 +17,11 @@ import Ionicons from '@react-native-vector-icons/ionicons';
 import { TarjetaLugar } from '../../src/componentes/TarjetaLugar';
 import { obtenerCategorias, obtenerLugares } from '../../src/servicios/lugares';
 import { Categoria, Coordenadas, Lugar } from '../../src/tipos';
-import { calcularDistanciaMetros } from '../../src/utilidades/geolocalizacion';
+import {
+  calcularDistanciaMetros,
+  obtenerUbicacionRobusta,
+  suscribirUbicacion,
+} from '../../src/utilidades/geolocalizacion';
 import { notificarProximidadLugar } from '../../src/servicios/notificaciones';
 import { useAuth } from '../../src/contexto/AuthContext';
 
@@ -30,31 +35,37 @@ export default function CatalogoScreen() {
   const [ubicacionUsuario, setUbicacionUsuario] = useState<Coordenadas | null>(null);
 
   // Usar favoritosIds y toggleFavorito del contexto global (ya están sincronizados)
-  const { favoritosIds, toggleFavorito } = useAuth();
+  const { usuario, favoritosIds, toggleFavorito } = useAuth();
   const router = useRouter();
 
   const handleToggleFav = async (lugarId: string) => {
     await toggleFavorito(lugarId);
   };
 
-  // 1. Obtener ubicación del usuario respetando permisos (degradación elegante si no los otorga)
+  // 1. Obtener ubicación instantánea (caché del sistema) y suscribir a actualizaciones continuas
   useEffect(() => {
+    let sub: Location.LocationSubscription | null = null;
+    let activo = true;
+
     (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          setUbicacionUsuario({
-            latitud: loc.coords.latitude,
-            longitud: loc.coords.longitude,
-          });
-        }
-      } catch (e) {
-        console.log('Permiso de ubicación no otorgado o error al obtenerla:', e);
+      // Intento ultra rápido (0-50ms) con fallback tolerante
+      const inicial = await obtenerUbicacionRobusta();
+      if (activo && inicial) {
+        setUbicacionUsuario(inicial);
       }
+
+      // Suscribirse a cambios en vivo (mientras camina el turista)
+      sub = await suscribirUbicacion((posActual) => {
+        if (activo) {
+          setUbicacionUsuario(posActual);
+        }
+      });
     })();
+
+    return () => {
+      activo = false;
+      if (sub) sub.remove();
+    };
   }, []);
 
   // 2. Cargar categorías una sola vez
@@ -70,18 +81,37 @@ export default function CatalogoScreen() {
       .finally(() => setCargando(false));
   }, [catActiva, busqueda]);
 
-  // Aviso de proximidad controlado (PDF Pág. 4: máximo 1 por lugar por día)
+  // Aviso de proximidad controlado (PDF Pág. 4: un aviso por lugar/día, configurable en preferencias)
   useEffect(() => {
     if (ubicacionUsuario && lugares.length > 0) {
+      if (usuario && usuario.preferencias && !usuario.preferencias.avisarProximidad) {
+        return;
+      }
+
+      const radioUmbral = usuario?.preferencias?.radioAvisoMetros ?? 350;
+
+      let lugarCercano: Lugar | null = null;
+      let distanciaMinima = Infinity;
+
       for (const lugar of lugares) {
         const d = calcularDistanciaMetros(ubicacionUsuario, lugar.coordenadas);
-        if (d <= 250) {
-          notificarProximidadLugar(lugar, d);
-          break;
+        if (d < distanciaMinima) {
+          distanciaMinima = d;
+          lugarCercano = lugar;
+        }
+      }
+
+      if (lugarCercano) {
+        console.log(
+          `[Proximidad] Posición: (${ubicacionUsuario.latitud.toFixed(4)}, ${ubicacionUsuario.longitud.toFixed(4)}) → Más próximo: "${lugarCercano.nombre}" a ${Math.round(distanciaMinima)}m (Umbral de aviso: ${radioUmbral}m).`
+        );
+
+        if (distanciaMinima <= radioUmbral) {
+          notificarProximidadLugar(lugarCercano, distanciaMinima);
         }
       }
     }
-  }, [ubicacionUsuario, lugares]);
+  }, [ubicacionUsuario, lugares, usuario]);
 
   // 4. Calcular distancias y ordenar si el usuario lo solicita
   const lugaresConDistancia = useMemo(() => {
@@ -129,31 +159,39 @@ export default function CatalogoScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filtrosScroll}
         >
-          {/* Botón para ordenar por distancia */}
-          {ubicacionUsuario && (
-            <Pressable
-              onPress={() => setOrdenarPorDistancia(!ordenarPorDistancia)}
+          {/* Botón para ordenar por distancia (siempre presente) */}
+          <Pressable
+            onPress={async () => {
+              if (!ubicacionUsuario) {
+                const u = await obtenerUbicacionRobusta();
+                if (u) {
+                  setUbicacionUsuario(u);
+                  setOrdenarPorDistancia(true);
+                }
+              } else {
+                setOrdenarPorDistancia(!ordenarPorDistancia);
+              }
+            }}
+            style={[
+              styles.chip,
+              styles.chipCercanos,
+              ordenarPorDistancia && styles.chipCercanosActivo,
+            ]}
+          >
+            <Ionicons
+              name="navigate"
+              size={14}
+              color={ordenarPorDistancia ? '#FFFFFF' : '#0077B6'}
+            />
+            <Text
               style={[
-                styles.chip,
-                styles.chipCercanos,
-                ordenarPorDistancia && styles.chipCercanosActivo,
+                styles.chipTexto,
+                ordenarPorDistancia && styles.chipTextoActivo,
               ]}
             >
-              <Ionicons
-                name="navigate"
-                size={14}
-                color={ordenarPorDistancia ? '#FFFFFF' : '#0077B6'}
-              />
-              <Text
-                style={[
-                  styles.chipTexto,
-                  ordenarPorDistancia && styles.chipTextoActivo,
-                ]}
-              >
-                Más cercanos
-              </Text>
-            </Pressable>
-          )}
+              Más cercanos
+            </Text>
+          </Pressable>
 
           {/* Chips de Categorías */}
           {categorias.map((c) => {

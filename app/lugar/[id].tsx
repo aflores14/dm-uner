@@ -21,6 +21,7 @@ import { Coordenadas, Lugar } from '../../src/tipos';
 import {
   calcularDistanciaMetros,
   formatearDistancia,
+  obtenerUbicacionRobusta,
   verificarEstadoApertura,
 } from '../../src/utilidades/geolocalizacion';
 
@@ -47,23 +48,12 @@ export default function DetalleLugarScreen() {
       });
     }
 
-    // Obtener ubicación con tolerancia a permisos
-    (async () => {
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          setUbicacionUsuario({
-            latitud: loc.coords.latitude,
-            longitud: loc.coords.longitude,
-          });
-        }
-      } catch (_e) {
-        // Ignora silenciosamente si no hay permisos
+    // Obtener ubicación con tolerancia a permisos y de forma inmediata
+    obtenerUbicacionRobusta().then((coords) => {
+      if (coords) {
+        setUbicacionUsuario(coords);
       }
-    })();
+    });
   }, [id]);
 
   if (cargando) {

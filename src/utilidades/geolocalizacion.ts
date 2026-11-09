@@ -1,6 +1,105 @@
 // src/utilidades/geolocalizacion.ts
 import { Linking, Platform } from 'react-native';
+import * as Location from 'expo-location';
 import { Coordenadas, Horario } from '../tipos';
+
+/**
+ * Obtiene la ubicación del usuario de la forma más rápida y tolerante a fallos.
+ * Primero intenta leer la última ubicación conocida en caché (instantánea).
+ * Si no existe, consulta la posición actual con precisión equilibrada, y
+ * si el GPS aún no tiene fix o falla, usa un fallback de menor precisión.
+ */
+export async function obtenerUbicacionRobusta(): Promise<Coordenadas | null> {
+  try {
+    const { status } = await Location.getForegroundPermissionsAsync();
+    let permitido = status === 'granted';
+
+    if (!permitido) {
+      const resp = await Location.requestForegroundPermissionsAsync();
+      permitido = resp.status === 'granted';
+    }
+
+    if (!permitido) {
+      return null;
+    }
+
+    // 1. Intento ultra-rápido: última posición registrada por el sistema (0-50ms)
+    try {
+      const ultima = await Location.getLastKnownPositionAsync({});
+      if (ultima?.coords) {
+        return {
+          latitud: ultima.coords.latitude,
+          longitud: ultima.coords.longitude,
+        };
+      }
+    } catch (_errUltima) {
+      // Continuar con los siguientes intentos
+    }
+
+    // 2. Posición en tiempo real con precisión equilibrada
+    try {
+      const actual = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      if (actual?.coords) {
+        return {
+          latitud: actual.coords.latitude,
+          longitud: actual.coords.longitude,
+        };
+      }
+    } catch (_errActual) {
+      // 3. Fallback con Lowest accuracy (red celular o WiFi)
+      try {
+        const fallback = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Lowest,
+        });
+        if (fallback?.coords) {
+          return {
+            latitud: fallback.coords.latitude,
+            longitud: fallback.coords.longitude,
+          };
+        }
+      } catch (_errFallback) {
+        // Silencioso: no romper la app si los servicios de ubicación están apagados
+      }
+    }
+  } catch (e) {
+    console.log('Error tolerado al consultar ubicación:', e);
+  }
+  return null;
+}
+
+/**
+ * Suscribe a actualizaciones continuas de la posición del usuario.
+ * Se actualiza cada 10 metros o cada 5 segundos.
+ */
+export async function suscribirUbicacion(
+  onUbicacion: (coord: Coordenadas) => void
+): Promise<Location.LocationSubscription | null> {
+  try {
+    const { status } = await Location.getForegroundPermissionsAsync();
+    if (status !== 'granted') return null;
+
+    return await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.Balanced,
+        distanceInterval: 10,
+        timeInterval: 5000,
+      },
+      (loc) => {
+        if (loc?.coords) {
+          onUbicacion({
+            latitud: loc.coords.latitude,
+            longitud: loc.coords.longitude,
+          });
+        }
+      }
+    );
+  } catch (err) {
+    console.log('Error iniciando suscripción de ubicación:', err);
+    return null;
+  }
+}
 
 /**
  * Calcula la distancia en metros entre dos coordenadas geográficas mediante la fórmula de Haversine.

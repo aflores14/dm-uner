@@ -27,6 +27,7 @@ import { Coordenadas, Lugar, OrigenVisita, Visita } from '../../src/tipos';
 import {
   calcularDistanciaMetros,
   formatearDistancia,
+  obtenerUbicacionRobusta,
 } from '../../src/utilidades/geolocalizacion';
 
 export default function RecorridoScreen() {
@@ -77,21 +78,12 @@ export default function RecorridoScreen() {
   useEffect(() => {
     cargarDatos();
 
-    // Obtener ubicación GPS con tolerancia a permisos
-    (async () => {
-      try {
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
-          setUbicacionUsuario({
-            latitud: loc.coords.latitude,
-            longitud: loc.coords.longitude,
-          });
-        }
-      } catch (_e) {}
-    })();
+    // Obtener ubicación GPS instantánea con tolerancia
+    obtenerUbicacionRobusta().then((coords) => {
+      if (coords) {
+        setUbicacionUsuario(coords);
+      }
+    });
   }, [usuario?.id]);
 
   const abrirModalRegistro = () => {
