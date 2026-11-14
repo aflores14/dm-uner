@@ -8,7 +8,7 @@ import { Usuario } from '../tipos';
 
 const BIOMETRIA_KEY = 'biometria_habilitada_v1';
 
-// Usuario mock oficial del PDF (pág. 10 y 11)
+// Datos de prueba para el usuario de demo
 const USUARIO_MOCK_DEFECTO: Usuario = {
   id: 'usr-201',
   nombre: 'Lucía Méndez',
@@ -30,11 +30,11 @@ interface AuthContextType {
   cargando: boolean;
   soportaBiometria: boolean;
   biometriaHabilitada: boolean;
-  // ── Favoritos reactivos globales ──────────────────────────────────────────
+  // Favoritos sincronizados
   favoritosIds: string[];
   toggleFavorito: (lugarId: string) => Promise<boolean>;
   recargarFavoritos: () => Promise<void>;
-  // ─────────────────────────────────────────────────────────────────────────
+
   iniciarSesion: (email: string, contrasena: string) => Promise<{ ok: boolean; error?: string }>;
   iniciarConBiometria: () => Promise<{ ok: boolean; error?: string }>;
   cerrarSesion: () => Promise<void>;
@@ -51,7 +51,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [biometriaHabilitada, setBiometriaHabilitada] = useState(false);
   const [favoritosIds, setFavoritosIds] = useState<string[]>([]);
 
-  // ── Recarga favoritos desde SQLite para el usuario actual ─────────────────
+  // Recarga favoritos desde SQLite para el usuario actual
   const recargarFavoritos = useCallback(async (uid?: string) => {
     const id = uid ?? usuario?.id;
     if (!id) {
@@ -62,7 +62,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setFavoritosIds(ids);
   }, [usuario?.id]);
 
-  // ── Alterna favorito y actualiza el estado global inmediatamente ──────────
+  // Alterna favorito y actualiza el estado local
   const toggleFavorito = useCallback(async (lugarId: string): Promise<boolean> => {
     if (!usuario) return false;
     const ahora = await alternarFavoritoDb(usuario.id, lugarId);
@@ -125,7 +125,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
       } catch (_apiError) {
-        // Fallback a autenticación mock local (según regla pág. 6 del PDF)
+        // Fallback a autenticacion local con usuario de prueba
         nuevoToken = `token-jwt-mock-${Date.now()}`;
         if (email.toLowerCase() === 'lucia@mail.com') {
           nuevoUsuario = USUARIO_MOCK_DEFECTO;

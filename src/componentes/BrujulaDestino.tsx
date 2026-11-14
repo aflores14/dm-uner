@@ -13,9 +13,9 @@ interface BrujulaDestinoProps {
   distanciaMetros: number | null;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+//
 // Hook reutilizable para leer el magnetómetro
-// ─────────────────────────────────────────────────────────────────────────────
+//
 function useMagnetometro() {
   const [angulo, setAngulo] = useState(0);
   const [disponible, setDisponible] = useState(false);
@@ -42,10 +42,10 @@ function useMagnetometro() {
   return { angulo, disponible };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+//
 // VERSIÓN COMPLETA — tarjeta expandida (ya no se usa en el mapa,
 // queda disponible si se necesita en otra pantalla)
-// ─────────────────────────────────────────────────────────────────────────────
+//
 export const BrujulaDestino: React.FC<BrujulaDestinoProps> = ({
   origen,
   destino,
@@ -108,10 +108,10 @@ export const BrujulaDestino: React.FC<BrujulaDestinoProps> = ({
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+//
 // VERSIÓN COMPACTA — overlay flotante sobre el mapa
 // Muestra solo la flecha grande y la distancia. Siempre visible en modo destino.
-// ─────────────────────────────────────────────────────────────────────────────
+//
 export const BrujulaDestinoCompacta: React.FC<BrujulaDestinoProps> = ({
   origen,
   destino,
@@ -146,9 +146,9 @@ export const BrujulaDestinoCompacta: React.FC<BrujulaDestinoProps> = ({
   );
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+//
 // ESTILOS
-// ─────────────────────────────────────────────────────────────────────────────
+//
 const styles = StyleSheet.create({
   // ── Versión completa ────────────────────────────────────────────────────
   card: {

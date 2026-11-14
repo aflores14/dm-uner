@@ -249,7 +249,7 @@ export default function RecorridoScreen() {
         nota: nota.trim() || null,
       });
 
-      // Feedback háptico obligatorio al registrar visita (PDF Pág. 5)
+      // Feedback haptico al registrar visita
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
       setVisitas([nueva, ...visitas]);
@@ -403,7 +403,7 @@ export default function RecorridoScreen() {
                     </View>
                   )}
 
-                  {/* Estado de sincronización offline (Pág. 12) */}
+                  {/* Estado de sincronizacion */}
                   <View style={styles.cardFooter}>
                     <View
                       style={[

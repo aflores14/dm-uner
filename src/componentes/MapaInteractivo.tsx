@@ -203,9 +203,7 @@ export default function MapaInteractivo() {
 
   return (
     <View style={styles.container}>
-      {/* ═══════════════════════════════════════════════════════════════════
-          MAPA PRINCIPAL
-      ═══════════════════════════════════════════════════════════════════ */}
+      
       <MapView
         ref={mapRef}
         provider={PROVIDER_GOOGLE}
@@ -280,9 +278,7 @@ export default function MapaInteractivo() {
         )}
       </MapView>
 
-      {/* ═══════════════════════════════════════════════════════════════════
-          OVERLAY SUPERIOR: FILTRO DE CATEGORÍAS (Solo en modo general)
-      ═══════════════════════════════════════════════════════════════════ */}
+      
       {!destinoActivo && (
         <View style={styles.filtrosOverlay}>
           <ScrollView
@@ -319,9 +315,7 @@ export default function MapaInteractivo() {
         </View>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════════════
-          BOTÓN "MI UBICACIÓN" — siempre visible, esquina inferior derecha
-      ═══════════════════════════════════════════════════════════════════ */}
+      
       <Pressable
         style={({ pressed }) => [
           styles.btnMiUbicacion,
@@ -335,9 +329,7 @@ export default function MapaInteractivo() {
         <Ionicons name="locate" size={22} color="#0077B6" />
       </Pressable>
 
-      {/* ═══════════════════════════════════════════════════════════════════
-          MODO DESTINO: FLECHA COMPACTA FLOTANTE + TARJETA INFERIOR
-      ═══════════════════════════════════════════════════════════════════ */}
+      
       {destinoActivo && (
         <>
           {/* Flecha orientadora: overlay a la derecha del centro del mapa.
@@ -406,9 +398,7 @@ export default function MapaInteractivo() {
         </>
       )}
 
-      {/* ═══════════════════════════════════════════════════════════════════
-          MODO GENERAL: LISTA "CERCA TUYO"
-      ═══════════════════════════════════════════════════════════════════ */}
+      
       {!destinoActivo && (
         <View style={styles.cercaTuyoContenedor}>
           <View style={styles.cercaTuyoHeader}>

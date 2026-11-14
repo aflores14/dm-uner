@@ -52,9 +52,9 @@ export const obtenerBaseDatos = async (): Promise<SQLite.SQLiteDatabase> => {
   return dbInstance;
 };
 
-// ==========================================
+//
 // CACHÉ OFFLINE DE LUGARES
-// ==========================================
+//
 export const cachearLugaresDb = async (lugares: Lugar[]): Promise<void> => {
   try {
     const db = await obtenerBaseDatos();
@@ -84,9 +84,9 @@ export const obtenerLugaresCacheDb = async (): Promise<Lugar[]> => {
   }
 };
 
-// ==========================================
+//
 // FAVORITOS POR USUARIO (ASOCIADOS A LA CUENTA)
-// ==========================================
+//
 export const obtenerFavoritosDb = async (usuarioId?: string): Promise<string[]> => {
   if (!usuarioId) return [];
   try {
@@ -138,9 +138,9 @@ export const alternarFavoritoDb = async (
   }
 };
 
-// ==========================================
+//
 // VISITAS POR USUARIO (ASOCIADAS A LA CUENTA)
-// ==========================================
+//
 export const guardarVisitaDb = async (visita: Visita): Promise<void> => {
   try {
     const db = await obtenerBaseDatos();

@@ -81,7 +81,7 @@ export default function CatalogoScreen() {
       .finally(() => setCargando(false));
   }, [catActiva, busqueda]);
 
-  // Aviso de proximidad controlado (PDF Pág. 4: un aviso por lugar/día, configurable en preferencias)
+  // Notificacion de proximidad (maximo una por lugar al dia)
   useEffect(() => {
     if (ubicacionUsuario && lugares.length > 0) {
       if (usuario && usuario.preferencias && !usuario.preferencias.avisarProximidad) {

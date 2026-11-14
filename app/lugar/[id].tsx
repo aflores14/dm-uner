@@ -172,7 +172,7 @@ export default function DetalleLugarScreen() {
           <Text style={styles.direccion}>{lugar.direccion}</Text>
         </View>
 
-        {/* Estado y Distancia (Wireframe Pág. 4) */}
+        {/* Estado y distancia */}
         <View style={styles.badgesFila}>
           <View
             style={[

@@ -26,7 +26,7 @@ import { obtenerLugares } from '../../src/servicios/lugares';
 import { reiniciarHistorialNotificacionesProximidad } from '../../src/servicios/notificaciones';
 import { Lugar } from '../../src/tipos';
 
-// Esquema de validación estricto según la cátedra
+// Validacion del formulario con Zod
 const loginSchema = z.object({
   email: z.string().email('Email no válido'),
   contrasena: z.string().min(5, 'Mínimo 5 caracteres'),
@@ -60,9 +60,9 @@ export default function PerfilScreen() {
     reset,
   } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
-    mode: 'onSubmit', // Requerimiento cátedra
+    mode: 'onSubmit',
     defaultValues: {
-      email: 'lucia@mail.com', // Valor por defecto de prueba sugerido por la cátedra
+      email: 'lucia@mail.com', // Usuario de prueba inicial
       contrasena: '123456',
     },
   });
@@ -175,7 +175,7 @@ export default function PerfilScreen() {
             </View>
           </View>
 
-          {/* Preferencias (PDF Pág. 10 y 11) */}
+          {/* Preferencias del turista */}
           <View style={styles.seccionCard}>
             <View style={styles.seccionHeader}>
               <Ionicons name="options-outline" size={20} color="#0077B6" />
@@ -301,7 +301,7 @@ export default function PerfilScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <Text style={styles.title}>Ingreso Turista</Text>
 
-          {/* Banner informativo según PDF Pág. 3 */}
+          {/* Banner informativo */}
           <View style={styles.infoBanner}>
             <Ionicons name="information-circle-outline" size={22} color="#0077B6" />
             <Text style={styles.infoBannerTexto}>
